@@ -1,12 +1,20 @@
 """
 BPE Tokenizer in the style of GPT-4: train with rustbpe, inference with tiktoken.
+
+Note: This module is being updated to support Nanochat token protocol v1.0.0
+The SPECIAL_TOKENS list below will be replaced with tokens from token_protocol.py
+during the next tokenizer retraining.
 """
 
 import os
 import copy
 from functools import lru_cache
 
-SPECIAL_TOKENS = [
+# Import new token protocol
+from nanochat.token_protocol import get_all_special_tokens, SPECIAL_TOKENS as NEW_SPECIAL_TOKENS
+
+# Old special tokens (for backward compatibility with existing trained tokenizers)
+OLD_SPECIAL_TOKENS = [
     # every document begins with the Beginning of Sequence (BOS) token that delimits documents
     "<|bos|>",
     # tokens below are only used during finetuning to render Conversations into token ids
@@ -19,6 +27,10 @@ SPECIAL_TOKENS = [
     "<|output_start|>", # python REPL outputs back to assistant
     "<|output_end|>",
 ]
+
+# Use new special tokens if retraining, otherwise use old for compatibility
+# When training a NEW tokenizer, this will use all tokens from token_protocol.py
+SPECIAL_TOKENS = list(get_all_special_tokens().values())
 
 # NOTE: this split pattern deviates from GPT-4 in that we use \p{N}{1,2} instead of \p{N}{1,3}
 # I did this because I didn't want to "waste" too many tokens on numbers for smaller vocab sizes.
