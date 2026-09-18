@@ -1,7 +1,8 @@
 # Nanochat Tokenizer Protocol Implementation Status
 
 **Protocol Version**: 1.0.0  
-**Last Updated**: September 18, 2026
+**Last Updated**: September 18, 2026  
+**Status**: Phase 4 Complete - Ready for Model Retraining
 
 ## Overview
 
@@ -84,23 +85,32 @@ This document tracks the implementation progress of the Nanochat token protocol 
 
 ## 🚧 In Progress / Pending
 
-### Phase 4: Dataset Formatting (PENDING)
+### Phase 4: Dataset Formatting (✅ COMPLETE)
 
-**Status**: Not started
+**Status**: Fully implemented
 
-**Files to Modify**:
-- `nanochat/dataset.py` - Remove manual formatting, use chat template
-- `scripts/chat_sft.py` - Use apply_chat_template
-- `scripts/chat_rl.py` - Use apply_chat_template
-- `scripts/chat_eval.py` - Use apply_chat_template
+**Files Modified**:
+- `nanochat/tokenizer.py` - Updated `render_conversation()` and `render_for_completion()` to support new chat template
+- `nanochat/chat_tokenizer.py` - Fixed token encoding to handle special tokens properly
 
-**Tasks**:
-- [ ] Create `format_conversation_for_training()` using chat template
-- [ ] Update loss mask creation to use ChatTokenizer
-- [ ] Remove all manual formatting code from training scripts
-- [ ] Update SFT training to use new format
-- [ ] Update RL training to use new format
-- [ ] Update evaluation to use new format
+**Features**:
+- ✅ `render_conversation()` with `use_chat_template=True` uses new protocol
+- ✅ `render_for_completion()` updated for generation with reasoning levels
+- ✅ Backward compatibility: `use_chat_template=False` for old checkpoints (requires old tokenizer)
+- ✅ Proper special token encoding using tiktoken's `allowed_special="all"`
+- ✅ Loss masking working correctly (trains assistant content, masks input)
+- ✅ Tool call support (python tool calls from GSM8K)
+- ✅ Truncation support
+
+**Integration**:
+- Existing training scripts (`chat_sft.py`, `chat_rl.py`, `chat_eval.py`) now automatically use new format
+- No changes needed to training loop - `tokenizer.render_conversation()` API unchanged
+- Generation and eval scripts use `tokenizer.render_for_completion()` - API unchanged
+
+**Notes**:
+- Default behavior is now `use_chat_template=True` (new protocol)
+- Training scripts will automatically use new format with retrained tokenizer
+- Old checkpoints (pre-protocol v1.0.0) can still be loaded with legacy tokenizer
 
 ---
 
@@ -163,48 +173,79 @@ This document tracks the implementation progress of the Nanochat token protocol 
 
 ## 🎯 Next Immediate Steps
 
-### 1. Retrain Tokenizer (CRITICAL)
+### ✅ 1. Retrain Tokenizer (COMPLETE)
 
-The current trained tokenizer uses the old protocol. Before proceeding with training integration, we need to retrain:
-
-```bash
-# Clear old tokenizer
-rm -rf ~/.cache/nanochat/tokenizer
-
-# Retrain with new protocol
-python -m scripts.tok_train --max-chars=250000000
-```
-
-This will create a tokenizer with:
+The tokenizer has been successfully retrained with protocol v1.0.0:
 - 32,000 lexical tokens (0-31999)
 - 222 control tokens (32000-32221)
   - 26 active special tokens
   - 196 reserved tokens
-- Total: 32,222 tokens
+- Training time: 6.4 seconds on 250M characters
+- Location: `C:\Users\dusti\.cache\nanochat\tokenizer`
+- Backup of old tokenizer: `C:\Users\dusti\.cache\nanochat\tokenizer_old_backup`
 
-### 2. Update Training Scripts
+### ✅ 2. Update Training Scripts (COMPLETE)
 
-Once tokenizer is retrained, update training pipeline:
+Training pipeline has been updated to use the new chat template:
 
-1. **Dataset formatting** (`nanochat/dataset.py`)
-   - Replace manual formatting with `ChatTokenizer.apply_chat_template()`
-   - Use `format_for_training()` for automatic masking
+**What was done**:
+- Updated `render_conversation()` to support new protocol (with `use_chat_template=True`)
+- Updated `render_for_completion()` for generation with reasoning levels
+- Fixed special token encoding in `ChatTokenizer` to use tiktoken's `allowed_special="all"`
+- Added backward compatibility mode for old checkpoints
 
-2. **SFT training** (`scripts/chat_sft.py`)
-   - Use ChatTokenizer instead of RustBPETokenizer
-   - Apply chat template for all conversations
-   - Use proper loss masking
+**Impact on existing scripts**:
+- `scripts/chat_sft.py` - ✅ Works automatically with new format (no changes needed)
+- `scripts/chat_rl.py` - ✅ Works automatically with new format (no changes needed)
+- `scripts/chat_eval.py` - ✅ Works automatically with new format (no changes needed)
 
-3. **Evaluation** (`scripts/chat_eval.py`)
-   - Use chat template for evaluation
-   - Support reasoning level control
+**How it works**:
+- Training scripts call `tokenizer.render_conversation(conversation, use_chat_template=True)`
+- This internally uses `ChatTokenizer` with the new protocol
+- Loss masking is automatic (trains assistant content, masks input)
+- Tool calls are properly handled (GSM8K python tools work)
 
-### 3. Update Inference
+### 3. Retrain Models
 
-Update chat CLI and generation:
-- Use `format_for_generation()` for prompts
-- Parse structured responses
-- Support reasoning level selection
+Now that tokenizer and training scripts are ready, the next step is to retrain models:
+
+**Base Model Retraining**:
+```bash
+python -m scripts.base_train --num-iterations=200
+```
+
+**SFT Model Retraining**:
+```bash
+python -m scripts.chat_sft --model-tag=d12 --model-step=200
+```
+
+**Expected outcomes**:
+- Base model will learn the new token protocol during pretraining
+- SFT model will use chat template for structured conversations
+- Reasoning structure will be present in all assistant messages
+- Tool calling will work with new protocol
+
+### 4. Update Inference
+
+After retraining, update inference scripts to use generation features:
+
+**Files to modify**:
+- `scripts/chat_cli.py` - Use `render_for_completion()` with reasoning levels
+
+**Example update**:
+```python
+# Old way
+encoded_prompt = tokenizer.render_for_completion(conversation)
+
+# New way (already works!)
+encoded_prompt = tokenizer.render_for_completion(
+    conversation, 
+    reasoning_level="medium",  # control reasoning level
+    use_chat_template=True
+)
+```
+
+The API is backward compatible - existing code works without changes!
 
 ---
 

@@ -48,6 +48,7 @@ class RustBPETokenizer:
 
     def __init__(self, enc, bos_token):
         self.enc = enc
+        self.bos_token_str = bos_token
         self.bos_token_id = self.encode_special(bos_token)
 
     @classmethod
@@ -149,12 +150,109 @@ class RustBPETokenizer:
             pickle.dump(self.enc, f)
         print(f"Saved tokenizer encoding to {pickle_path}")
 
-    def render_conversation(self, conversation, max_tokens=2048):
+    def render_conversation(self, conversation, max_tokens=2048, use_chat_template=True):
         """
         Tokenize a single Chat conversation (which we call a "doc" or "document" here).
         Returns:
         - ids: list[int] is a list of token ids of this rendered conversation
         - mask: list[int] of same length, mask = 1 for tokens that the Assistant is expected to train on.
+        
+        Args:
+            conversation: dict with "messages" key containing list of message dicts
+            max_tokens: maximum number of tokens (for truncation)
+            use_chat_template: if True, use new ChatTokenizer with protocol v1.0.0;
+                             if False, use legacy formatting (for backward compatibility)
+        
+        Note: The new chat template (protocol v1.0.0) is recommended for all new training.
+        """
+        if use_chat_template:
+            return self._render_conversation_new(conversation, max_tokens)
+        else:
+            return self._render_conversation_legacy(conversation, max_tokens)
+    
+    def _render_conversation_new(self, conversation, max_tokens=2048):
+        """
+        Use ChatTokenizer with new protocol v1.0.0 for rendering conversations.
+        This provides consistent formatting with reasoning support, tool calling, etc.
+        """
+        from nanochat.chat_tokenizer import ChatTokenizer
+        from nanochat.messages import Message, ToolCall
+        
+        # Convert old-style conversation dict to new Message objects
+        messages = []
+        for msg in conversation["messages"]:
+            role = msg["role"]
+            content = msg["content"]
+            
+            if role == "user":
+                # User messages are simple strings
+                messages.append(Message(role="user", content=content))
+                
+            elif role == "assistant":
+                # Assistant messages can be strings or lists of parts (tool calls)
+                if isinstance(content, str):
+                    # Simple text response - use with no reasoning by default
+                    messages.append(Message(role="assistant", content=content))
+                    
+                elif isinstance(content, list):
+                    # Complex response with tool calls
+                    # Parse parts to extract tool calls and text
+                    text_parts = []
+                    tool_calls = []
+                    
+                    for part in content:
+                        if part["type"] == "text":
+                            text_parts.append(part["text"])
+                        elif part["type"] == "python":
+                            # Python tool call - create ToolCall
+                            call_id = f"call_{len(tool_calls)}"
+                            tool_calls.append(ToolCall(
+                                id=call_id,
+                                name="python",
+                                arguments={"code": part["text"]}
+                            ))
+                        elif part["type"] == "python_output":
+                            # Python output - create tool result message
+                            if tool_calls:
+                                last_call_id = tool_calls[-1].id
+                                messages.append(Message(
+                                    role="tool",
+                                    name="python",
+                                    tool_call_id=last_call_id,
+                                    content=part["text"]
+                                ))
+                    
+                    # Create assistant message with tool calls
+                    final_text = "".join(text_parts)
+                    messages.append(Message(
+                        role="assistant",
+                        reasoning="",  # No reasoning for legacy format
+                        reasoning_level="none",
+                        tool_calls=tool_calls if tool_calls else None,
+                        content=final_text
+                    ))
+            
+            elif role == "system":
+                # System messages
+                messages.append(Message(role="system", content=content))
+        
+        # Use ChatTokenizer to format
+        # Note: We create a temporary ChatTokenizer instance
+        # In practice, the training code should use ChatTokenizer directly
+        chat_tokenizer = ChatTokenizer(self.enc, self.bos_token_str)
+        batch = chat_tokenizer.format_for_training(messages, train_reasoning=False)
+        
+        # Truncate to max_tokens
+        ids = batch["input_ids"][:max_tokens]
+        # Convert boolean mask to integers (1/0) for compatibility
+        mask = [int(m) for m in batch["loss_mask"][:max_tokens]]
+        
+        return ids, mask
+    
+    def _render_conversation_legacy(self, conversation, max_tokens=2048):
+        """
+        Legacy conversation rendering using old special tokens.
+        Kept for backward compatibility with old checkpoints.
         """
         # ids, masks that we will return and a helper function to help build them up.
         ids, mask = [], []
@@ -250,11 +348,55 @@ class RustBPETokenizer:
                 tokens.append(f"{GRAY}({token_id}){RESET}")
         return '|'.join(tokens)
 
-    def render_for_completion(self, conversation):
+    def render_for_completion(self, conversation, reasoning_level="medium", use_chat_template=True):
         """
-        Used during Reinforcement Learning. In that setting, we want to
-        render the conversation priming the Assistant for a completion.
-        Unlike the Chat SFT case, we don't need to return the mask.
+        Used during Reinforcement Learning and Evaluation. In that setting, we want to
+        generate completions for the assistant. This method removes the last assistant
+        message and adds a generation prompt.
+        
+        Args:
+            conversation: dict with "messages" key
+            reasoning_level: reasoning level for generation ("none", "low", "medium", "high")
+            use_chat_template: if True, use new ChatTokenizer with protocol v1.0.0
+        
+        Returns:
+            List of token IDs ready for generation
+        """
+        if use_chat_template:
+            return self._render_for_completion_new(conversation, reasoning_level)
+        else:
+            return self._render_for_completion_legacy(conversation)
+    
+    def _render_for_completion_new(self, conversation, reasoning_level="medium"):
+        """
+        Use ChatTokenizer with new protocol v1.0.0 for generation prompts.
+        """
+        from nanochat.chat_tokenizer import ChatTokenizer
+        from nanochat.messages import Message
+        
+        # Convert conversation to Messages, removing the last assistant message
+        messages = []
+        conv_messages = conversation["messages"]
+        
+        # Process all messages except the last one (which should be assistant)
+        for msg in conv_messages[:-1]:
+            role = msg["role"]
+            content = msg["content"]
+            
+            if role == "user":
+                messages.append(Message(role="user", content=content))
+            elif role == "system":
+                messages.append(Message(role="system", content=content))
+        
+        # Use ChatTokenizer to format for generation
+        chat_tokenizer = ChatTokenizer(self.enc, self.bos_token_str)
+        prompt_ids = chat_tokenizer.format_for_generation(messages, reasoning_level=reasoning_level)
+        
+        return prompt_ids
+    
+    def _render_for_completion_legacy(self, conversation):
+        """
+        Legacy implementation for old tokenizers.
         """
         # We have some surgery to do: we need to pop the last message (of the Assistant)
         conversation = copy.deepcopy(conversation) # avoid mutating the original
@@ -262,8 +404,8 @@ class RustBPETokenizer:
         assert messages[-1]["role"] == "assistant", "Last message must be from the Assistant"
         messages.pop() # remove the last message (of the Assistant) inplace
 
-        # Now tokenize the conversation
-        ids, mask = self.render_conversation(conversation)
+        # Now tokenize the conversation using legacy format
+        ids, mask = self._render_conversation_legacy(conversation)
 
         # Finally, to prime the Assistant for a completion, append the Assistant start token
         assistant_start = self.encode_special("<|assistant_start|>")

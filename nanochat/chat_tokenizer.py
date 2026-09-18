@@ -173,8 +173,10 @@ class ChatTokenizer(RustBPETokenizer):
         if not tokenize:
             return formatted_text
         
-        # Tokenize (use encode_ordinary to not add BOS automatically)
-        token_ids = self.encode(formatted_text, prepend=None, append=None)
+        # Tokenize with special tokens handled properly
+        # The formatted text contains special tokens like <|message_start|>, <|user|>, etc.
+        # We need to use tiktoken's encode with allowed_special to handle them as single tokens
+        token_ids = self.enc.encode(formatted_text, allowed_special="all")
         
         if return_dict:
             return {
