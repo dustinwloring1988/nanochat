@@ -193,6 +193,11 @@ def compute_init(device_type="cuda"): # cuda|cpu|mps
     if device_type == "cuda":
         torch.set_float32_matmul_precision("high") # uses tf32 instead of fp32 for matmuls, see https://docs.pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
 
+    # Optional disabling of torch.compile via env var
+    if os.environ.get("PYTORCH_COMPILE_OFF", "0") == "1":
+        torch._dynamo.config.disable = True
+        print0("torch._dynamo / torch.compile disabled via PYTORCH_COMPILE_OFF=1")
+
     # Distributed setup: Distributed Data Parallel (DDP), optional, and requires CUDA
     is_ddp_requested, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
     if is_ddp_requested and device_type == "cuda":
@@ -264,6 +269,7 @@ def get_peak_flops(device_name: str) -> float:
         # Consumer RTX
         (["5090"], 209.5e12),
         (["4090"], 165.2e12),
+        (["4060 ti"], 92.6e12),
         (["3090"], 71e12),
     )
     for patterns, flops in _PEAK_FLOPS_TABLE:
@@ -317,6 +323,7 @@ def get_peak_bandwidth(device_name: str) -> float:
         # Consumer RTX
         (["5090"], 1.79e12),
         (["4090"], 1.01e12),
+        (["4060 ti"], 288e9),
         (["3090"], 936e9),
     )
     for patterns, bandwidth in _PEAK_BANDWIDTH_TABLE:
