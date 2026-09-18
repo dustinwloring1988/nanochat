@@ -1,0 +1,103 @@
+{# 
+Nanochat Chat Template v1.0.0
+
+This template converts structured messages into the token sequence the model is trained on.
+Training and inference MUST use this template - no manual formatting anywhere else.
+
+Message Structure:
+    All messages: <|message_start|><|role|>content<|message_end|>
+    Assistant messages: ALWAYS have reasoning structure
+
+Reasoning Behavior:
+    - reasoning_level="none": <|think_none|><|think_end|> (no reasoning content)
+    - reasoning_level="low/medium/high": <|think_X|>reasoning...<|think_end|>
+
+Generation Behavior:
+    - With add_generation_prompt=True, appends: <|message_start|><|assistant|>
+    - If reasoning_level="none": adds <|think_none|><|think_end|>, generation starts after
+    - If reasoning_level set: adds <|think_X|>, model generates reasoning + <|think_end|> + answer
+
+Tool Calls:
+    - Serialized as JSON between <|tool_call|> and <|tool_call_end|>
+    - Format: {"id": "call_1", "name": "tool_name", "arguments": {...}}
+
+Content Types:
+    - String: Rendered directly
+    - List: Each item processed based on type (text, image, video, audio)
+    - Multimodal: Placeholder tokens inserted (<|image|>, etc.)
+#}
+
+{%- for message in messages %}
+{{- '<|message_start|>' -}}
+{{- '<|' + message.role + '|>' -}}
+
+{# Assistant messages ALWAYS have reasoning structure #}
+{%- if message.role == 'assistant' %}
+    {%- if message.reasoning_level == 'none' or (not message.reasoning and not message.reasoning_level) %}
+        {# No reasoning mode: explicit think_none marker #}
+        {{- '<|think_none|><|think_end|>' -}}
+    {%- elif message.reasoning_level == 'low' %}
+        {{- '<|think_low|>' -}}
+        {{- message.reasoning if message.reasoning else '' -}}
+        {{- '<|think_end|>' -}}
+    {%- elif message.reasoning_level == 'medium' %}
+        {{- '<|think_medium|>' -}}
+        {{- message.reasoning if message.reasoning else '' -}}
+        {{- '<|think_end|>' -}}
+    {%- elif message.reasoning_level == 'high' %}
+        {{- '<|think_high|>' -}}
+        {{- message.reasoning if message.reasoning else '' -}}
+        {{- '<|think_end|>' -}}
+    {%- else %}
+        {# Default to none if invalid or missing #}
+        {{- '<|think_none|><|think_end|>' -}}
+    {%- endif %}
+{%- endif %}
+
+{# Content: string or list of content items #}
+{%- if message.content is string %}
+    {{- message.content -}}
+{%- elif message.content is iterable and message.content is not string %}
+    {%- for item in message.content %}
+        {%- if item.type == 'text' %}
+            {{- item.text -}}
+        {%- elif item.type == 'image' %}
+            {{- '<|image|>' -}}
+        {%- elif item.type == 'video' %}
+            {{- '<|video|>' -}}
+        {%- elif item.type == 'audio' %}
+            {{- '<|audio|>' -}}
+        {%- endif %}
+    {%- endfor %}
+{%- endif %}
+
+{# Tool calls: serialize to JSON #}
+{%- if message.tool_calls %}
+    {%- for call in message.tool_calls %}
+        {{- '<|tool_call|>' -}}
+        {{- call | tojson -}}
+        {{- '<|tool_call_end|>' -}}
+    {%- endfor %}
+{%- endif %}
+
+{{- '<|message_end|>' -}}
+{%- endfor %}
+
+{# Generation prompt: add assistant start with reasoning marker #}
+{%- if add_generation_prompt %}
+    {{- '<|message_start|><|assistant|>' -}}
+    {%- if reasoning_level == 'none' %}
+        {# Start generation after think markers #}
+        {{- '<|think_none|><|think_end|>' -}}
+    {%- elif reasoning_level == 'low' %}
+        {# Start generation inside reasoning block #}
+        {{- '<|think_low|>' -}}
+    {%- elif reasoning_level == 'medium' %}
+        {{- '<|think_medium|>' -}}
+    {%- elif reasoning_level == 'high' %}
+        {{- '<|think_high|>' -}}
+    {%- else %}
+        {# Default to medium if not specified #}
+        {{- '<|think_medium|>' -}}
+    {%- endif %}
+{%- endif %}
