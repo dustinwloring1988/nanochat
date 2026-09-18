@@ -184,11 +184,24 @@ class Engine:
 
         # Get the special tokens we need to coordinate the tool use state machine
         get_special = lambda s: self.tokenizer.encode_special(s)
-        python_start = get_special("<|python_start|>")
-        python_end = get_special("<|python_end|>")
-        output_start = get_special("<|output_start|>")
-        output_end = get_special("<|output_end|>")
-        assistant_end = get_special("<|assistant_end|>") # if sampled, ends row
+        
+        # Try new protocol tokens first, fall back to legacy
+        try:
+            message_end = get_special("<|message_end|>")
+        except KeyError:
+            message_end = get_special("<|assistant_end|>")  # legacy fallback
+        
+        # Legacy tool tokens (still used for now)
+        try:
+            python_start = get_special("<|python_start|>")
+            python_end = get_special("<|python_end|>")
+            output_start = get_special("<|output_start|>")
+            output_end = get_special("<|output_end|>")
+        except KeyError:
+            # New protocol doesn't use these legacy tokens in this way
+            # Set to sentinel values that won't match
+            python_start = python_end = output_start = output_end = -1
+        
         bos = self.tokenizer.get_bos_token_id() # if sampled, ends row
 
         # 1) Run a batch 1 prefill of the prompt tokens
@@ -245,8 +258,8 @@ class Engine:
                 token_column.append(next_token)
                 # Update the state of this row to include the next token
                 state.current_tokens.append(next_token)
-                # On <|assistant_end|> or <|bos|>, mark the row as completed
-                if next_token == assistant_end or next_token == bos:
+                # On <|message_end|> (or legacy <|assistant_end|>) or <|bos|>, mark the row as completed
+                if next_token == message_end or next_token == bos:
                     state.completed = True
                 # Handle tool logic
                 if next_token == python_start:
@@ -278,9 +291,15 @@ class Engine:
         """
         Non-streaming batch generation that just returns the final token sequences.
         Returns a list of token sequences (list of lists of ints).
-        Terminal tokens (assistant_end, bos) are not included in the results.
+        Terminal tokens (message_end, bos) are not included in the results.
         """
-        assistant_end = self.tokenizer.encode_special("<|assistant_end|>")
+        # Use new protocol tokens if available, fall back to legacy
+        try:
+            message_end = self.tokenizer.encode_special("<|message_end|>")
+        except KeyError:
+            # Fall back to old token for backward compatibility
+            message_end = self.tokenizer.encode_special("<|assistant_end|>")
+        
         bos = self.tokenizer.get_bos_token_id()
         results = [tokens.copy() for _ in range(num_samples)]
         masks = [[0] * len(tokens) for _ in range(num_samples)]
@@ -288,7 +307,7 @@ class Engine:
         for token_column, token_masks in self.generate(tokens, num_samples, **kwargs):
             for i, (token, mask) in enumerate(zip(token_column, token_masks)):
                 if not completed[i]:
-                    if token == assistant_end or token == bos:
+                    if token == message_end or token == bos:
                         completed[i] = True
                     else:
                         results[i].append(token)
