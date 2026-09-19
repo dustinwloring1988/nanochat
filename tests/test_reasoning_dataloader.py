@@ -26,7 +26,7 @@ class TestNemotronReasoningDataset:
         # Use streaming mode to avoid downloading full dataset
         dataset = NemotronReasoningDataset(
             dataset_name="nvidia/Nemotron-Cascade-SFT-Stage-2",
-            subset="math",  # Use specific config
+            filter_by={"category": "math"},  # Filter by category field
             split="train",
             streaming=True,
             reasoning_ratio=0.7,
@@ -36,12 +36,13 @@ class TestNemotronReasoningDataset:
         assert dataset.dataset_name == "nvidia/Nemotron-Cascade-SFT-Stage-2"
         assert dataset.reasoning_ratio == 0.7
         assert dataset.streaming == True
+        assert dataset.filter_by == {"category": "math"}
     
     def test_reasoning_content_parsing(self):
         """Test parsing reasoning from content"""
         dataset = NemotronReasoningDataset(
             dataset_name="nvidia/Nemotron-Cascade-SFT-Stage-2",
-            subset="math",
+            filter_by={"category": "math"},
             split="train",
             streaming=True,
             reasoning_ratio=0.7,
@@ -70,7 +71,7 @@ class TestNemotronReasoningDataset:
         """Test reasoning level inference from content length"""
         dataset = NemotronReasoningDataset(
             dataset_name="nvidia/Nemotron-Cascade-SFT-Stage-2",
-            subset="math",
+            filter_by={"category": "math"},
             split="train",
             streaming=True,
             reasoning_ratio=0.7,
@@ -93,7 +94,7 @@ class TestNemotronReasoningDataset:
         """Test conversion from Nemotron to Nanochat format"""
         dataset = NemotronReasoningDataset(
             dataset_name="nvidia/Nemotron-Cascade-SFT-Stage-2",
-            subset="math",
+            filter_by={"category": "math"},
             split="train",
             streaming=True,
             reasoning_ratio=1.0,  # Always use reasoning
@@ -134,7 +135,7 @@ class TestNemotronReasoningDataset:
         """Test that reasoning ratio is approximately enforced"""
         dataset = NemotronReasoningDataset(
             dataset_name="nvidia/Nemotron-Cascade-SFT-Stage-2",
-            subset="math",
+            filter_by={"category": "math"},
             split="train",
             streaming=True,
             reasoning_ratio=0.5,  # 50% reasoning
@@ -178,7 +179,7 @@ class TestMixedReasoningDataLoader:
         datasets_config = [
             {
                 "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
-                "subset": "math",
+                "filter_by": {"category": "math"},
                 "weight": 0.6,
                 "reasoning_ratio": 0.7,
                 "streaming": True,
@@ -186,6 +187,7 @@ class TestMixedReasoningDataLoader:
             {
                 "name": "nvidia/Nemotron-Post-Training-Dataset-v2",
                 "subset": "SFT",
+                "split": "math",  # Splits are categories in Post-Training
                 "weight": 0.4,
                 "reasoning_ratio": 0.5,
                 "streaming": True,
@@ -204,13 +206,14 @@ class TestMixedReasoningDataLoader:
         datasets_config = [
             {
                 "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
-                "subset": "math",
+                "filter_by": {"category": "math"},
                 "weight": 2.0,
                 "streaming": True,
             },
             {
                 "name": "nvidia/Nemotron-Post-Training-Dataset-v2",
                 "subset": "SFT",
+                "split": "math",
                 "weight": 3.0,
                 "streaming": True,
             }
@@ -256,8 +259,8 @@ class TestReasoningDataLoaderFactory:
         )
         
         assert len(loader.datasets) >= 1
-        assert loader.datasets[0].dataset_name == "nvidia/Nemotron-Cascade-SFT-Stage-2"
-        assert loader.datasets[0].subset == "instruction-following"
+        # Should have Instruction-Following-Chat-v1 as primary dataset
+        assert any("Instruction-Following" in ds.dataset_name for ds in loader.datasets)
     
     @pytest.mark.slow
     def test_create_reasoning_loader(self):
@@ -338,7 +341,7 @@ def test_message_format_compatibility():
     """Test that converted messages are compatible with Message class"""
     dataset = NemotronReasoningDataset(
         dataset_name="nvidia/Nemotron-Cascade-SFT-Stage-2",
-        subset="math",
+        filter_by={"category": "math"},
         split="train",
         streaming=True,
         reasoning_ratio=0.7,

@@ -195,24 +195,29 @@ if (-not $SkipReasoningSFT) {
     Write-Host "Stage 3: Reasoning SFT (NEW!)" -ForegroundColor Cyan
     Write-Host "==========================================" -ForegroundColor Cyan
     Write-Host "Training model with reasoning capabilities" -ForegroundColor Yellow
-    Write-Host "Using NVIDIA Nemotron datasets:" -ForegroundColor Yellow
-    Write-Host "  - Nemotron-Cascade-SFT-Stage-2 (instruction + reasoning)" -ForegroundColor White
-    Write-Host "  - Nemotron-Post-Training-Dataset-v2 (multilingual reasoning)" -ForegroundColor White
+    Write-Host "Using NVIDIA Nemotron datasets (streaming mode):" -ForegroundColor Yellow
+    Write-Host "  - Nemotron-SFT-Instruction-Following-Chat-v2 (reasoning_on/reasoning_off)" -ForegroundColor White
+    Write-Host "  - Nemotron-Cascade-SFT-Stage-2 (math, code, science, general)" -ForegroundColor White
     Write-Host ""
     Write-Host "Reasoning configuration:" -ForegroundColor Cyan
     Write-Host "  Iterations: $ReasoningSFTIterations" -ForegroundColor White
     Write-Host "  Reasoning ratio: $ReasoningRatio" -ForegroundColor White
     Write-Host "  Training stages:" -ForegroundColor White
-    Write-Host "    - Stage 1: Instruction following (30%)" -ForegroundColor Gray
-    Write-Host "    - Stage 2: Reasoning training (50%)" -ForegroundColor Gray
-    Write-Host "    - Stage 3: Multi-task fine-tuning (20%)" -ForegroundColor Gray
+    Write-Host "    - Stage 1: Instruction following v2 (reasoning_on + reasoning_off)" -ForegroundColor Gray
+    Write-Host "    - Stage 2: Reasoning training (Cascade math, code, science, general)" -ForegroundColor Gray
+    Write-Host "    - Stage 3: Mixed training (all datasets combined)" -ForegroundColor Gray
+    Write-Host "  Features:" -ForegroundColor White
+    Write-Host "    - Streaming mode (no disk space issues)" -ForegroundColor Gray
+    Write-Host "    - Multi-format message conversion" -ForegroundColor Gray
+    Write-Host "    - Configurable reasoning ratios per stage" -ForegroundColor Gray
     Write-Host ""
     
     $reasoningSftExists = Test-Path "$NANOCHAT_BASE_DIR\reasoning_sft_checkpoints"
     
     if (-not $reasoningSftExists) {
         Write-Host "Starting reasoning SFT training..." -ForegroundColor Yellow
-        Write-Host "Note: First run will download Nemotron datasets (~10GB)" -ForegroundColor Yellow
+        Write-Host "Note: Using streaming mode - no large downloads required" -ForegroundColor Yellow
+        Write-Host "Datasets will stream directly from HuggingFace" -ForegroundColor Yellow
         Write-Host "This may take several hours depending on iterations." -ForegroundColor Yellow
         Write-Host ""
         

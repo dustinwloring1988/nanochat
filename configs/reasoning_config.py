@@ -2,16 +2,29 @@
 Reasoning Model Configuration
 
 This configuration defines the training parameters for reasoning-capable models
-using NVIDIA Nemotron datasets.
+using NVIDIA Nemotron datasets and Allen AI Dolci datasets.
 
 Training Philosophy:
     - Stage 1: Instruction following (30% of training)
-    - Stage 2: Reasoning training with CoT (50% of training)
+    - Stage 2: Reasoning training with CoT + Tool Use (50% of training)
     - Stage 3: Multi-task fine-tuning (20% of training)
 
 Dataset Sources:
-    - nvidia/Nemotron-Cascade-SFT-Stage-2: 7.8M examples (math, code, science, tool calling, SWE, general)
-    - nvidia/Nemotron-Post-Training-Dataset-v2: 5.3M examples (multilingual reasoning)
+    - nvidia/Nemotron-Cascade-SFT-Stage-2: 7.8M examples
+      (math, code, science, tool calling, SWE, general, instruction following)
+      NOTE: Single config, filter by 'category' field, use 'thinking' field for reasoning on/off
+    
+    - nvidia/Nemotron-Post-Training-Dataset-v2: 5.3M examples 
+      (multilingual reasoning across math, code, stem, chat)
+      NOTE: Config="SFT", splits are categories (math, code, stem, chat, multilingual_*)
+    
+    - nvidia/Nemotron-Instruction-Following-Chat-v1: 431K examples
+      (chat and instruction following with reasoning on/off modes)
+      NOTE: Use 'reasoning' field ("on"/"off"), 'reasoning_content' in messages
+    
+    - allenai/Dolci-Instruct-SFT-Tool-Use: ~1M+ examples
+      (function calling and tool use training)
+      NOTE: Messages have 'function_calls' and 'functions' fields, 'environment' role for results
 
 Reasoning Modes:
     - reasoning_on: Model generates explicit chain-of-thought before answer
@@ -96,11 +109,22 @@ CONFIG = {
         # Stage 1: Instruction Following
         "stage1": [
             {
-                "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
-                "subset": None,  # Use full dataset
-                "weight": 1.0,
+                "name": "nvidia/Nemotron-Instruction-Following-Chat-v1",
+                "subset": None,
+                "split": "train",
+                "filter_by": {"capability_target": "instruction_following"},
+                "weight": 0.7,
                 "reasoning_ratio": 0.3,  # Lower ratio for instruction following
-                "description": "Instruction following + basic reasoning"
+                "description": "Verified instruction following with IFEval/IFBench"
+            },
+            {
+                "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
+                "subset": None,
+                "split": "train",
+                "filter_by": {"category": "instruction_following"},
+                "weight": 0.3,
+                "reasoning_ratio": 0.3,
+                "description": "Instruction following from Cascade dataset"
             }
         ],
         
@@ -109,16 +133,61 @@ CONFIG = {
             {
                 "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
                 "subset": None,
-                "weight": 0.6,
+                "split": "train",
+                "filter_by": {"category": "math"},
+                "weight": 0.20,
                 "reasoning_ratio": 0.7,  # High ratio for reasoning
-                "description": "Math, code, science reasoning"
+                "description": "Math reasoning (OpenMathReasoning)"
+            },
+            {
+                "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
+                "subset": None,
+                "split": "train",
+                "filter_by": {"category": "code"},
+                "weight": 0.20,
+                "reasoning_ratio": 0.7,
+                "description": "Code reasoning (OpenCodeReasoning, TACO)"
+            },
+            {
+                "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
+                "subset": None,
+                "split": "train",
+                "filter_by": {"category": "science"},
+                "weight": 0.10,
+                "reasoning_ratio": 0.7,
+                "description": "Science reasoning"
+            },
+            {
+                "name": "allenai/Dolci-Instruct-SFT-Tool-Use",
+                "subset": None,
+                "split": "train",
+                "weight": 0.15,
+                "reasoning_ratio": 0.8,  # High ratio - tool use requires reasoning
+                "description": "Tool-use and function calling training"
             },
             {
                 "name": "nvidia/Nemotron-Post-Training-Dataset-v2",
                 "subset": "SFT",
-                "weight": 0.4,
+                "split": "math",
+                "weight": 0.15,
                 "reasoning_ratio": 0.7,
-                "description": "Multilingual reasoning"
+                "description": "Multilingual math reasoning"
+            },
+            {
+                "name": "nvidia/Nemotron-Post-Training-Dataset-v2",
+                "subset": "SFT",
+                "split": "code",
+                "weight": 0.10,
+                "reasoning_ratio": 0.7,
+                "description": "Multilingual code reasoning"
+            },
+            {
+                "name": "nvidia/Nemotron-Post-Training-Dataset-v2",
+                "subset": "SFT",
+                "split": "stem",
+                "weight": 0.10,
+                "reasoning_ratio": 0.7,
+                "description": "STEM reasoning"
             }
         ],
         
@@ -126,10 +195,51 @@ CONFIG = {
         "stage3": {
             "reasoning_datasets": [
                 {
+                    "name": "nvidia/Nemotron-Instruction-Following-Chat-v1",
+                    "subset": None,
+                    "split": "train",
+                    "filter_by": {"capability_target": "chat"},
+                    "weight": 0.20,
+                    "reasoning_ratio": 0.5,
+                },
+                {
                     "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
                     "subset": None,
-                    "weight": 0.5,
+                    "split": "train",
+                    "filter_by": {"category": "general"},
+                    "weight": 0.20,
+                    "reasoning_ratio": 0.5,
+                },
+                {
+                    "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
+                    "subset": None,
+                    "split": "train",
+                    "filter_by": {"category": "math"},
+                    "weight": 0.15,
                     "reasoning_ratio": 0.6,
+                },
+                {
+                    "name": "nvidia/Nemotron-Cascade-SFT-Stage-2",
+                    "subset": None,
+                    "split": "train",
+                    "filter_by": {"category": "code"},
+                    "weight": 0.10,
+                    "reasoning_ratio": 0.6,
+                },
+                {
+                    "name": "allenai/Dolci-Instruct-SFT-Tool-Use",
+                    "subset": None,
+                    "split": "train",
+                    "weight": 0.15,
+                    "reasoning_ratio": 0.7,
+                    "description": "Tool-use and function calling"
+                },
+                {
+                    "name": "nvidia/Nemotron-Post-Training-Dataset-v2",
+                    "subset": "SFT",
+                    "split": "chat",
+                    "weight": 0.20,
+                    "reasoning_ratio": 0.5,
                 }
             ],
             "legacy_tasks": {
