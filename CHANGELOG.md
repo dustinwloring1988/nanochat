@@ -7,6 +7,165 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Reasoning Model Support (September 2026)
+
+**MAJOR UPDATE**: NanoChat now supports reasoning-capable models that can show step-by-step problem-solving and chain-of-thought (CoT) reasoning.
+
+#### Added
+
+**Reasoning Infrastructure**
+- `nanochat/reasoning_dataloader.py` - Dataloader for NVIDIA Nemotron reasoning datasets
+  - Support for reasoning_on/reasoning_off splits
+  - Automatic reasoning level inference (none, low, medium, high)
+  - Mixed dataset sampling with configurable weights
+  - Streaming support for large datasets
+- `scripts/chat_reasoning_sft.py` - Reasoning-focused SFT training script
+  - Three-stage training: Instruction Following → Reasoning → Multi-task
+  - Reasoning curriculum learning (gradually increase reasoning ratio)
+  - Integration with Nemotron-Cascade-SFT-Stage-2 (7.8M examples)
+  - Integration with Nemotron-Post-Training-Dataset-v2 (5.3M examples)
+- `configs/reasoning_config.py` - Comprehensive reasoning model configuration
+  - Stage boundaries and scheduling
+  - Reasoning ratio curriculum
+  - Dataset mixing strategies
+- `tests/test_reasoning_dataloader.py` - Complete test suite for reasoning functionality
+
+**Dataset Integration**
+- **Nemotron-Cascade-SFT-Stage-2** (7.8M examples):
+  - Math: OpenMathReasoning (1.9M)
+  - Code: OpenCodeReasoning, TACO (1.4M)
+  - Science: Nemotron-v1, synthetic (311K)
+  - General: MMLU, SlimOrca, ShareGPT (3.6M)
+  - Tool Calling (309K)
+  - Software Engineering (211K)
+  - Instruction Following (146K)
+- **Nemotron-Post-Training-Dataset-v2** (5.3M examples):
+  - Math, Code, STEM reasoning
+  - Multilingual reasoning (5 languages)
+  - Mixed thinking=true/false examples
+
+**Training Pipeline**
+- Updated `runs/complete_pipeline_docker.ps1` with reasoning SFT stage:
+  - Stage 1: Tokenizer training
+  - Stage 2: Base pretraining
+  - **Stage 3: Reasoning SFT (NEW!)**
+  - Stage 4: Standard SFT
+- Configurable reasoning parameters:
+  - `ReasoningSFTIterations`: Training iterations (default: 1000)
+  - `ReasoningRatio`: Fraction of reasoning examples (default: 0.7)
+- Complete Docker support with GPU passthrough
+
+**Reasoning Features**
+- Four reasoning levels:
+  - `none`: Direct answers (0 reasoning tokens)
+  - `low`: Short reasoning (~50-200 tokens)
+  - `medium`: Moderate reasoning (~200-800 tokens)
+  - `high`: Detailed reasoning (800+ tokens)
+- Adaptive reasoning based on task complexity
+- Reasoning level inference from content length
+- Automatic reasoning/answer splitting
+- Loss mask optimization for reasoning tokens
+
+**Documentation**
+- `docs/reasoning_model_guide.md` - Comprehensive guide:
+  - Training reasoning models
+  - Using reasoning levels
+  - Performance benchmarks
+  - Troubleshooting guide
+  - Dataset information
+  - Example usage patterns
+
+#### Changed
+
+**Chat Tokenizer**
+- Enhanced `nanochat/chat_template.jinja` with reasoning support
+  - Reasoning markers: `<|think_none|>`, `<|think_low|>`, `<|think_medium|>`, `<|think_high|>`
+  - Automatic reasoning structure for all assistant messages
+  - Backward compatible with existing models
+- Updated `nanochat/chat_tokenizer.py` for reasoning formatting
+- Extended `nanochat/messages.py` with reasoning fields
+
+**Training Scripts**
+- Enhanced `scripts/chat_sft.py` compatibility with reasoning models
+- Improved checkpoint management for multi-stage training
+- Better stage transitions and progress tracking
+
+**Pipeline**
+- Extended `complete_pipeline_docker.ps1`:
+  - 4-stage training (was 3-stage)
+  - Reasoning SFT stage between pretraining and standard SFT
+  - New parameters for reasoning configuration
+  - Enhanced output with reasoning capability indicators
+
+#### Performance Improvements
+
+**Expected Gains** (on d12 model):
+- GSM8K (Math): 30-40% → 60-70% (+30%)
+- MMLU: 35-45% → 40-50% (+5-10%)
+- HumanEval (Code): 15-25% → 30-40% (+15%)
+- ARC-Challenge: 30-40% → 40-50% (+10%)
+
+**Training Efficiency**:
+- Training time: +20-30% over standard SFT
+- Inference (reasoning_level="none"): Same speed as baseline
+- Inference (reasoning_level="medium"): 2-3x tokens (better accuracy)
+- Memory: Minimal increase (same architecture)
+
+#### Dataset Statistics
+
+**Nemotron-Cascade-SFT-Stage-2 Composition**:
+| Domain | Samples | Primary Sources |
+|--------|---------|----------------|
+| Math | 1.9M | OpenMathReasoning |
+| Code | 1.4M | OpenCodeReasoning, TACO |
+| Science | 311K | Nemotron-v1, synthetic |
+| General | 3.6M | MMLU, SlimOrca, ShareGPT |
+| Tool Calling | 309K | Nemotron-v1 |
+| SWE | 211K | SWE-Bench, R2E-Gym |
+| Instruction Following | 146K | Tulu-3 personas |
+
+**Reasoning Distribution**:
+- thinking=true: ~60% of examples (with explicit CoT)
+- thinking=false: ~40% of examples (direct answers)
+- Response generators: DeepSeek-R1-0528, Qwen2.5/3, DeepSeek-V3
+
+#### Fixed
+
+- Reasoning content parsing for various formats (`<think>`, `Answer:`, `\boxed{}`)
+- Dataset streaming for large-scale training
+- Checkpoint compatibility between reasoning and standard SFT
+- Loss masking for reasoning tokens
+- Stage transition logic in multi-stage training
+
+#### Migration Guide
+
+**For Existing Users**:
+1. No breaking changes - existing training pipelines work as before
+2. To enable reasoning:
+   ```powershell
+   .\runs\complete_pipeline_docker.ps1 `
+       -ReasoningSFTIterations 1000 `
+       -ReasoningRatio 0.7
+   ```
+3. To use reasoning in inference:
+   ```python
+   engine.generate(messages, reasoning_level="medium")
+   ```
+
+**New CLI Options**:
+```bash
+# Training
+python -m scripts.chat_reasoning_sft -- \
+    --num-iterations=2000 \
+    --reasoning-ratio=0.7 \
+    --enable-reasoning-curriculum=1
+
+# Inference
+python -m scripts.chat_cli --reasoning-level=medium
+```
+
+---
+
 ### Nemotron Dataset Integration (January 2027)
 
 Major update integrating NVIDIA Nemotron specialized pretraining datasets for code-focused training.

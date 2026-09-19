@@ -47,12 +47,16 @@ class ExecutionResult:
 GUARD = r"""
 import faulthandler, builtins, os, shutil, subprocess, sys
 maximum_memory_bytes = {maximum_memory_bytes}
-if maximum_memory_bytes is not None and sys.platform != "darwin":
-    # (the resource limit calls seem to fail on macOS, skip them there)
-    import resource
-    resource.setrlimit(resource.RLIMIT_AS, (maximum_memory_bytes, maximum_memory_bytes))
-    resource.setrlimit(resource.RLIMIT_DATA, (maximum_memory_bytes, maximum_memory_bytes))
-    resource.setrlimit(resource.RLIMIT_STACK, (maximum_memory_bytes, maximum_memory_bytes))
+if maximum_memory_bytes is not None and sys.platform not in ("darwin", "win32"):
+    # Resource limits only work on Unix (not macOS, not Windows)
+    try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (maximum_memory_bytes, maximum_memory_bytes))
+        resource.setrlimit(resource.RLIMIT_DATA, (maximum_memory_bytes, maximum_memory_bytes))
+        resource.setrlimit(resource.RLIMIT_STACK, (maximum_memory_bytes, maximum_memory_bytes))
+    except (ImportError, OSError):
+        # resource module not available or rlimit calls failed
+        pass
 faulthandler.disable()
 builtins.exit = None
 builtins.quit = None
@@ -62,9 +66,11 @@ for name in ("kill", "system", "putenv", "remove", "removedirs", "rmdir", "fchdi
              "setuid", "fork", "forkpty", "killpg", "rename", "renames", "truncate",
              "replace", "unlink", "fchmod", "fchown", "chmod", "chown", "chroot",
              "lchflags", "lchmod", "lchown", "getcwd", "chdir"):
-    setattr(os, name, None)
+    if hasattr(os, name):  # Some functions don't exist on all platforms
+        setattr(os, name, None)
 for name in ("rmtree", "move", "chown"):
-    setattr(shutil, name, None)
+    if hasattr(shutil, name):
+        setattr(shutil, name, None)
 subprocess.Popen = None
 for name in ("ipdb", "joblib", "resource", "psutil", "tkinter"):
     sys.modules[name] = None
