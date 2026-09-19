@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.2.0-devel-ubuntu22.04
+FROM nvidia/cuda:13.0.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV SHELL=/bin/bash
@@ -18,21 +18,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv and deps in one layer so PATH persists
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    . $HOME/.local/bin/env && \
-    uv --version && \
-    # Force uv to use Python 3.11
-    uv venv --python 3.11
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Copy the project
 COPY . /nanochat
 
-# Set up uv default-groups and install project deps
-RUN . $HOME/.local/bin/env && uv sync --extra gpu
+# Set up uv and install project deps
+RUN . $HOME/.local/bin/env && \
+    uv venv --python 3.11 && \
+    uv sync --extra gpu && \
+    echo "Verifying kernels package installation..." && \
+    /nanochat/.venv/bin/python -c "from kernels import get_kernel, has_kernel; print('✓ kernels package installed successfully')"
 
 # Make train/eval scripts executable
 RUN chmod +x /nanochat/scripts/*.py /nanochat/runs/*.sh
+
+# Create python symlinks
+RUN ln -s /nanochat/.venv/bin/python3 /usr/local/bin/python && \
+    ln -s /nanochat/.venv/bin/python3 /usr/local/bin/python3 && \
+    ln -s /nanochat/.venv/bin/pip3 /usr/local/bin/pip
+
+# Set PATH to include venv and uv
+ENV PATH="/nanochat/.venv/bin:/root/.local/bin:$PATH"
+
+# Set Python to unbuffered mode for better logging
+ENV PYTHONUNBUFFERED=1
 
 # Default command
 CMD ["bash"]

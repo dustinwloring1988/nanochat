@@ -42,7 +42,11 @@ def _load_flash_attention_3():
             else:
                 return None
 
-    except Exception:
+    except Exception as e:
+        import sys
+        print(f"WARNING: Failed to load Flash Attention 3: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         return None
 
 
