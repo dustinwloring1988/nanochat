@@ -1,0 +1,67 @@
+Nemotron Dataset Analysis Results
+============================================================
+
+Subset: Nemotron-Pretraining-Fact-Seeking
+  Samples: 1000
+  Character lengths:
+    Min:            86
+    P25:           152
+    Median:        195
+    Mean:          231
+    P75:           278
+    P90:           391
+    P95:           467
+    P99:           605
+    Max:           831
+  Estimated token lengths (@ ~4 chars/token):
+    Median: ~        49 tokens
+    P95:    ~       117 tokens
+
+Subset: Nemotron-Pretraining-Moral-Scenarios
+  Samples: 1000
+  Character lengths:
+    Min:         1,108
+    P25:         1,636
+    Median:      2,108
+    Mean:        3,823
+    P75:         3,102
+    P90:        10,712
+    P95:        11,314
+    P99:        12,319
+    Max:        13,267
+  Estimated token lengths (@ ~4 chars/token):
+    Median: ~       527 tokens
+    P95:    ~     2,829 tokens
+
+Subset: Nemotron-Pretraining-Generative
+  Samples: 1000
+  Character lengths:
+    Min:           117
+    P25:         1,656
+    Median:      2,204
+    Mean:        2,639
+    P75:         3,408
+    P90:         4,860
+    P95:         5,556
+    P99:         6,845
+    Max:         9,584
+  Estimated token lengths (@ ~4 chars/token):
+    Median: ~       551 tokens
+    P95:    ~     1,389 tokens
+
+Subset: Nemotron-Pretraining-Multiple-Choice
+  Samples: 1000
+  Character lengths:
+    Min:           366
+    P25:           613
+    Median:        690
+    Mean:          722
+    P75:           804
+    P90:           938
+    P95:         1,012
+    P99:         1,166
+    Max:         1,380
+  Estimated token lengths (@ ~4 chars/token):
+    Median: ~       173 tokens
+    P95:    ~       253 tokens
+

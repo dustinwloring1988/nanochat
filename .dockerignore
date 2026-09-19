@@ -1,0 +1,9 @@
+.venv
+*.pyc
+__pycache__
+*.egg-info
+*.egg
+node_modules
+*.pkl
+*.pt
+*.iparquet
