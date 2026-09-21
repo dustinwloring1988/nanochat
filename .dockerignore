@@ -1,0 +1,50 @@
+# Exclude large data files from Docker build context
+data/
+*.parquet
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+checkpoints/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+wandb/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Environment
+.env
+.venv/
+venv/
+ENV/

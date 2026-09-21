@@ -1,0 +1,160 @@
+# NanoChat Pretraining Curriculum
+#
+# This file defines the staged curriculum for pretraining with multi-source data mixing.
+# The curriculum consists of 4 stages with varying data distributions and context lengths.
+#
+# Design principles (from the model's recommendations):
+# - Stage 1: Foundation - broad mixture to establish general capabilities
+# - Stage 2: Reasoning + Code - increase specialized data for target capabilities  
+# - Stage 3: Long-context - extend context window for complex reasoning
+# - Stage 4: Consolidation - return to broad mixture to integrate knowledge
+#
+# Context length scheduling:
+# - Gradual ramps within stages for training stability
+# - Progressive extension: 2K→4K→8K→16K
+# - Final stage at 16K (can optionally extend to 32K for <5% of training)
+#
+# Token ratios based on recommended curriculum design.
+
+stages:
+  - name: "foundation"
+    token_ratio: 0.55  # 55% of total training tokens
+    context_range: [2048, 4096]  # Gradually ramp from 2K to 4K
+    description: "Establish broad language understanding and general capabilities"
+    
+    # Source-level mixing weights
+    source_weights:
+      climbmix: 0.70        # Strong foundation in general web text
+      nemotron_v1: 0.20     # Introduce STEM/reasoning
+      nemotron_v1_1: 0.07   # Some code/logic exposure
+      nemotron_v1_2: 0.03   # Fact-based QA exposure
+    
+    # Per-source subset weights (for multi-subset sources)
+    subset_weights:
+      nemotron_v1:
+        Nemotron-Pretraining-RQA: 0.35              # Reasoning QA
+        Nemotron-Pretraining-STEM-SFT: 0.20         # STEM instruction following
+        Nemotron-Pretraining-Math-Textbooks: 0.15   # Math content
+        Nemotron-Pretraining-InfiniByte-Reasoning: 0.12       # Cross-domain problems
+        Nemotron-Pretraining-Wiki-Rewrite: 0.08     # Clear explanations
+        Nemotron-Pretraining-Scientific-Coding: 0.10  # Scientific code
+      
+      nemotron_v1_1:
+        Nemotron-Pretraining-Code-Concepts: 0.45     # Programming concepts
+        Nemotron-Pretraining-Multiple-Choice: 0.25   # MC questions
+        Nemotron-Pretraining-Formal-Logic: 0.15      # Logic and proofs
+        Nemotron-Pretraining-Unconditional-Algorithmic: 0.08  # Algorithms
+        Nemotron-Pretraining-Economics: 0.07         # Economics
+      
+      nemotron_v1_2:
+        Nemotron-Pretraining-Fact-Seeking: 0.55      # Fact-based QA
+        Nemotron-Pretraining-Multiple-Choice: 0.25   # MC questions
+        Nemotron-Pretraining-Generative: 0.18        # Generative QA
+        Nemotron-Pretraining-Moral-Scenarios: 0.02   # Moral reasoning
+  
+  - name: "reasoning_and_code"
+    token_ratio: 0.28  # 28% of total training tokens
+    context_range: [4096, 8192]  # Ramp from 4K to 8K
+    description: "Focus on reasoning, mathematics, code, and algorithmic thinking"
+    
+    source_weights:
+      climbmix: 0.50        # Reduce general text
+      nemotron_v1: 0.30     # Increase STEM/reasoning
+      nemotron_v1_1: 0.10   # Increase code/algorithms
+      nemotron_v1_2: 0.10   # Increase fact-seeking
+    
+    subset_weights:
+      nemotron_v1:
+        Nemotron-Pretraining-RQA: 0.40              # More reasoning
+        Nemotron-Pretraining-InfiniByte-Reasoning: 0.18       # More cross-domain
+        Nemotron-Pretraining-Scientific-Coding: 0.15  # More code
+        Nemotron-Pretraining-Math-Textbooks: 0.15   # More math
+        Nemotron-Pretraining-STEM-SFT: 0.10         # Some instruction following
+        Nemotron-Pretraining-Wiki-Rewrite: 0.02     # Less wiki
+      
+      nemotron_v1_1:
+        Nemotron-Pretraining-Code-Concepts: 0.50     # More programming
+        Nemotron-Pretraining-Formal-Logic: 0.20      # More logic
+        Nemotron-Pretraining-Unconditional-Algorithmic: 0.15  # More algorithms
+        Nemotron-Pretraining-Multiple-Choice: 0.10   # Less MC
+        Nemotron-Pretraining-Economics: 0.05         # Less economics
+      
+      nemotron_v1_2:
+        Nemotron-Pretraining-Fact-Seeking: 0.50      # Maintain fact-seeking
+        Nemotron-Pretraining-Generative: 0.25        # More generative
+        Nemotron-Pretraining-Multiple-Choice: 0.23   # Maintain MC
+        Nemotron-Pretraining-Moral-Scenarios: 0.02   # Keep moral reasoning
+  
+  - name: "long_context"
+    token_ratio: 0.12  # 12% of total training tokens
+    context_range: [8192, 16384]  # Ramp from 8K to 16K
+    description: "Extended context for complex reasoning and long-form content"
+    
+    source_weights:
+      climbmix: 0.45        # Further reduce general text
+      nemotron_v1: 0.35     # Peak specialized content
+      nemotron_v1_1: 0.10   # Maintain code/logic
+      nemotron_v1_2: 0.10   # Maintain fact-seeking
+    
+    subset_weights:
+      nemotron_v1:
+        Nemotron-Pretraining-RQA: 0.45              # Peak reasoning
+        Nemotron-Pretraining-InfiniByte-Reasoning: 0.20       # Peak cross-domain
+        Nemotron-Pretraining-Scientific-Coding: 0.15  # Peak code
+        Nemotron-Pretraining-Math-Textbooks: 0.10   # Math content
+        Nemotron-Pretraining-STEM-SFT: 0.08         # Instruction following
+        Nemotron-Pretraining-Wiki-Rewrite: 0.02     # Minimal wiki
+      
+      nemotron_v1_1:
+        Nemotron-Pretraining-Code-Concepts: 0.45     # Maintain programming
+        Nemotron-Pretraining-Formal-Logic: 0.25      # Peak logic
+        Nemotron-Pretraining-Unconditional-Algorithmic: 0.20  # Peak algorithms
+        Nemotron-Pretraining-Multiple-Choice: 0.08   # Reduce MC
+        Nemotron-Pretraining-Economics: 0.02         # Minimal economics
+      
+      nemotron_v1_2:
+        Nemotron-Pretraining-Fact-Seeking: 0.45      # Reduce fact-seeking
+        Nemotron-Pretraining-Generative: 0.30        # Peak generative
+        Nemotron-Pretraining-Multiple-Choice: 0.23   # Maintain MC
+        Nemotron-Pretraining-Moral-Scenarios: 0.02   # Keep moral reasoning
+  
+  - name: "consolidation"
+    token_ratio: 0.05  # 5% of total training tokens
+    context_range: [16384, 16384]  # Fixed at 16K
+    description: "Integrate specialized knowledge back into general distribution"
+    
+    source_weights:
+      climbmix: 0.60        # Return to broader distribution
+      nemotron_v1: 0.20     # Reduce specialized
+      nemotron_v1_1: 0.10   # Maintain code
+      nemotron_v1_2: 0.10   # Maintain facts
+    
+    subset_weights:
+      nemotron_v1:
+        Nemotron-Pretraining-RQA: 0.35              # Balanced reasoning
+        Nemotron-Pretraining-STEM-SFT: 0.20         # More instruction following
+        Nemotron-Pretraining-Math-Textbooks: 0.15   # Math content
+        Nemotron-Pretraining-InfiniByte-Reasoning: 0.12       # Cross-domain
+        Nemotron-Pretraining-Wiki-Rewrite: 0.10     # More wiki (consolidation)
+        Nemotron-Pretraining-Scientific-Coding: 0.08  # Code
+      
+      nemotron_v1_1:
+        Nemotron-Pretraining-Code-Concepts: 0.40     # Balanced programming
+        Nemotron-Pretraining-Multiple-Choice: 0.25   # Back to MC
+        Nemotron-Pretraining-Formal-Logic: 0.15      # Balanced logic
+        Nemotron-Pretraining-Unconditional-Algorithmic: 0.12  # Algorithms
+        Nemotron-Pretraining-Economics: 0.08         # Back to economics
+      
+      nemotron_v1_2:
+        Nemotron-Pretraining-Fact-Seeking: 0.50      # Balanced fact-seeking
+        Nemotron-Pretraining-Multiple-Choice: 0.25   # Balanced MC
+        Nemotron-Pretraining-Generative: 0.20        # Balanced generative
+        Nemotron-Pretraining-Moral-Scenarios: 0.05   # More moral reasoning
+
+# Notes:
+# - Total token_ratio sums to 1.00 (55% + 28% + 12% + 5%)
+# - Context gradually extends from 2K → 16K
+# - Source weights sum to 1.0 within each stage
+# - Subset weights sum to 1.0 for each source
+# - Stage transitions are smooth (no abrupt changes between stages)
+# - The curriculum follows: broad → specialized → very specialized → broad again

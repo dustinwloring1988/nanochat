@@ -1,0 +1,121 @@
+# NanoChat SFT (Supervised Fine-Tuning) Curriculum
+#
+# This file defines the staged curriculum for SFT with multi-dataset mixing.
+# The SFT curriculum consists of 3 stages focusing on different capabilities.
+#
+# Design principles (from the model's recommendations):
+# - Stage A: Instruction Alignment - teach chat format, helpfulness, general instruction following
+# - Stage B: Coding + Agents - focus on tool use, repository-level coding, agentic behavior
+# - Stage C: Consolidation - balance agent capabilities with pleasant conversation
+#
+# Context length scheduling:
+# - Stage A: 8K (sufficient for most instruction following)
+# - Stage B: 16K (repository-level coding requires more context)
+# - Stage C: 16K-32K (long agentic trajectories and consolidation)
+#
+# Stage ratios are based on epochs through component datasets rather than
+# fixed token counts (since SFT datasets are much smaller).
+
+stages:
+  - name: "instruction_alignment"
+    epoch_ratio: 0.4  # ~40% of total SFT training
+    context_range: [8192, 8192]  # Fixed at 8K
+    description: "Teach chat format, helpfulness, instruction following, and conversational behavior"
+    
+    # Source-level mixing weights
+    source_weights:
+      smoltalk: 0.65         # Primary instruction following dataset
+      nemotron_multilingual: 0.20  # Multilingual capabilities
+      hunter_alpha: 0.10     # Some tool use exposure
+      nemotron_swe: 0.03     # Minimal agent exposure
+      claude_fable: 0.02     # High-quality examples
+    
+    # Recommended epochs per dataset for this stage
+    dataset_epochs:
+      smoltalk: 0.5          # Half epoch of SmolTalk (~230K examples)
+      nemotron_multilingual: 0.3  # ~111K examples
+      hunter_alpha: 0.5      # ~616 examples
+      nemotron_swe: 0.2      # ~1023 examples
+      claude_fable: 1.0      # 63 examples (see multiple times)
+  
+  - name: "coding_and_agents"
+    epoch_ratio: 0.4  # ~40% of total SFT training
+    context_range: [16384, 16384]  # Fixed at 16K for long trajectories
+    description: "Focus on coding, tool use, repository-level software engineering, and agentic behavior"
+    
+    source_weights:
+      smoltalk: 0.35         # Maintain instruction following
+      nemotron_multilingual: 0.10  # Some multilingual
+      hunter_alpha: 0.15     # More tool use
+      nemotron_swe: 0.38     # Primary agent/coding dataset
+      claude_fable: 0.02     # High-quality examples
+    
+    dataset_epochs:
+      smoltalk: 0.3          # ~138K examples (focused on coding/tool subsets)
+      nemotron_multilingual: 0.2  # ~74K examples
+      hunter_alpha: 1.0      # ~1233 examples (full dataset)
+      nemotron_swe: 1.5      # ~7672 examples (see multiple times)
+      claude_fable: 2.0      # 126 examples (valuable for agent behavior)
+  
+  - name: "consolidation"
+    epoch_ratio: 0.2  # ~20% of total SFT training
+    context_range: [16384, 32768]  # Ramp from 16K to 32K
+    description: "Integrate agent capabilities while maintaining pleasant conversational behavior"
+    
+    source_weights:
+      smoltalk: 0.45         # Return to more instruction following
+      nemotron_multilingual: 0.10  # Maintain multilingual
+      hunter_alpha: 0.10     # Maintain tool use
+      nemotron_swe: 0.32     # Maintain agent skills
+      claude_fable: 0.03     # Continue high-quality examples
+    
+    dataset_epochs:
+      smoltalk: 0.4          # ~184K examples
+      nemotron_multilingual: 0.2  # ~74K examples
+      hunter_alpha: 0.5      # ~616 examples
+      nemotron_swe: 1.0      # ~5115 examples
+      claude_fable: 2.0      # 126 examples
+
+# Additional SFT Configuration
+
+# Special token handling
+preserve_special_tokens: true  # Preserve tool calls, tool results, function schemas
+
+# Chat template considerations
+# SmolTalk: Uses standard chat format with user/assistant/system roles
+# Hunter/SWE: Include tool definitions and tool call/result messages
+# Multilingual: Translated prompts/answers, English reasoning traces
+# Fable: High-quality curated examples
+
+# Subset filtering recommendations (optional)
+# SmolTalk has multiple subsets - could filter to specific capabilities:
+subset_filters:
+  smoltalk:
+    instruction_alignment:
+      - "general"
+      - "summarization"
+      - "rewriting"
+      - "math"
+      - "reasoning"
+    coding_and_agents:
+      - "coding"
+      - "function_calling"
+      - "long_context"
+    consolidation:
+      - "general"
+      - "conversation"
+
+# Tool/function calling datasets
+tool_use_datasets:
+  - "hunter_alpha"     # Contains tool definitions and usage
+  - "nemotron_swe"     # Contains tools field with function schemas
+  - "smoltalk"         # Has function_calling subset
+
+# Notes:
+# - Total epoch_ratio sums to 1.00 (40% + 40% + 20%)
+# - Context extends from 8K → 32K across stages
+# - Source weights sum to 1.0 within each stage
+# - Fable dataset (63 examples) is oversampled due to quality
+# - The curriculum follows: general instruction → agentic coding → balanced
+# - Tool use and function calling structure should be preserved from source datasets
+# - Multilingual support is maintained throughout but not dominant

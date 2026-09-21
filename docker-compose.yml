@@ -1,0 +1,49 @@
+services:
+  nanochat-train:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nanochat:latest
+    container_name: nanochat-train
+    
+    # GPU configuration
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all  # Use all available GPUs, or set to 1 for single GPU
+              capabilities: [gpu]
+    
+    # Volume mounts
+    volumes:
+      - ./data:/workspace/data                    # Data cache (persistent)
+      - ./checkpoints:/workspace/checkpoints      # Model checkpoints (persistent)
+      - ./runs:/workspace/runs                    # Run scripts
+      - ./config:/workspace/config                # Configuration files
+    
+    # Environment variables
+    environment:
+      - NANOCHAT_BASE_DIR=/workspace/data
+      - CUDA_VISIBLE_DEVICES=0                    # Single GPU (4060Ti)
+      - OMP_NUM_THREADS=1
+      - WANDB_API_KEY=${WANDB_API_KEY:-}          # Optional: set in .env file
+    
+    # Shared memory for DataLoader workers
+    shm_size: '8gb'
+    
+    # Keep container running
+    stdin_open: true
+    tty: true
+    
+    # Working directory
+    working_dir: /workspace
+    
+    # Command: default to bash, override with docker-compose run commands
+    command: /bin/bash
+
+  # Alternative: Run training directly on container start
+  nanochat-train-auto:
+    extends: nanochat-train
+    container_name: nanochat-train-auto
+    command: bash /workspace/docker/init_training.sh

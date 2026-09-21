@@ -7,6 +7,33 @@ nanochat is the simplest experimental harness for training LLMs. It is designed 
 
 For questions about the repo, I recommend either using [DeepWiki](https://deepwiki.com/karpathy/nanochat) from Devin/Cognition to ask questions about the repo, or use the [Discussions tab](https://github.com/karpathy/nanochat/discussions), or come by the [#nanochat](https://discord.com/channels/1020383067459821711/1427295580895314031) channel on Discord.
 
+## Quick Start with Docker
+
+The fastest way to get started is using Docker (no local Python setup required):
+
+```bash
+# Start automated training pipeline
+docker-compose up nanochat-train-auto
+```
+
+This single command will:
+1. Build the Docker image (first time: ~5-10 min)
+2. Train the tokenizer (~30-45 min)
+3. Download datasets (~10-20 min)
+4. Train a depth=6 test model (~2-4 hours)
+
+**Total time: ~3-5 hours unattended**
+
+After training completes, chat with your model:
+
+```bash
+docker-compose run --rm nanochat-train bash -c "source .venv/bin/activate && python -m scripts.chat_cli"
+```
+
+Your trained models are saved to `./checkpoints/` and datasets to `./data/` (persisted between runs).
+
+**Requirements:** Docker with NVIDIA GPU support (NVIDIA Container Toolkit). See [DOCKER_TRAINING.md](DOCKER_TRAINING.md) for detailed guide and troubleshooting.
+
 ## Time-to-GPT-2 Leaderboard
 
 Presently, the main focus of development is on tuning the pretraining stage, which takes the most amount of compute. Inspired by the modded-nanogpt repo and to incentivise progress and community collaboration, nanochat maintains a leaderboard for a "GPT-2 speedrun", which is the wall-clock time required to train a nanochat model to GPT-2 grade capability, as measured by the DCLM CORE score. The [runs/speedrun.sh](runs/speedrun.sh) script always reflects the reference way to train GPT-2 grade model and talk to it. The current leaderboard looks as follows:

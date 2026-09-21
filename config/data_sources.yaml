@@ -1,0 +1,99 @@
+# NanoChat Data Sources Registry
+#
+# This file defines all dataset sources used in pretraining and SFT.
+# It serves as documentation and central configuration for data provenance.
+
+pretraining:
+  climbmix:
+    repo_id: "karpathy/climbmix-400b-shuffle"
+    license: "CC-BY-NC-4.0 (research/development only)"
+    description: "400B token English pretraining corpus"
+    total_tokens_approx: 400000000000
+    download_method: "direct"  # Uses custom downloader
+    
+  nemotron_v1:
+    repo_id: "nvidia/Nemotron-Pretraining-Specialized-v1"
+    license: "Mixed (see dataset card for details)"
+    description: "270.7B tokens: STEM reasoning, RQA, math, scientific code, wiki"
+    total_tokens_approx: 270700000000
+    download_method: "huggingface"  # Uses HF datasets library
+    subsets:
+      rqa: "Reasoning QA - long-form STEM reasoning"
+      stem_sft: "STEM-focused instruction following"
+      math_textbooks: "Mathematics textbooks and explanations"
+      infinibyte: "Cross-domain problems (code, math, physics, chemistry)"
+      wiki_rewrite: "Wikipedia rewrites for better clarity"
+      scientific_coding: "Scientific computing code and explanations"
+    
+  nemotron_v1_1:
+    repo_id: "nvidia/Nemotron-Pretraining-Specialized-v1.1"
+    license: "CC-BY-4.0 with additional considerations"
+    description: "9.3B tokens: Code concepts, algorithms, formal logic, economics"
+    total_tokens_approx: 9300000000
+    download_method: "huggingface"
+    subsets:
+      code_concepts: "Programming concepts and patterns"
+      multiple_choice: "Multiple choice questions"
+      formal_logic: "Formal logic and proofs"
+      unconditional_algo: "Algorithm implementations"
+      economics: "Economics concepts and problems"
+    
+  nemotron_v1_2:
+    repo_id: "nvidia/Nemotron-Pretraining-Specialized-v1.2"
+    license: "CC-BY-4.0 and CC-BY-2.0 with DeepSeek considerations"
+    description: "41.8B tokens: Fact seeking, generative QA, multiple choice, moral scenarios"
+    total_tokens_approx: 41800000000
+    download_method: "huggingface"
+    subsets:
+      fact_seeking: "Fact-based question answering"
+      multiple_choice: "Multiple choice questions"
+      generative: "Generative question answering"
+      moral_scenarios: "Moral reasoning scenarios"
+
+sft:
+  smoltalk:
+    repo_id: "HuggingFaceTB/smol-smoltalk"
+    license: "Apache-2.0"
+    description: "460K examples: General instruction following, conversations, tool use"
+    num_examples: 460000
+    download_method: "huggingface"
+    
+  nemotron_multilingual:
+    repo_id: "nvidia/Nemotron-SFT-Multilingual-v2"
+    license: "CC-BY-4.0"
+    description: "370K examples: Hindi/Korean/Portuguese/Japanese + math/code/STEM"
+    num_examples: 370081
+    download_method: "huggingface"
+    note: "Prompts/answers translated, reasoning traces remain in English"
+    
+  hunter_alpha:
+    repo_id: "heegyu/Hunter-Alpha-Coding-Agent-SFT"
+    license: "See dataset card"
+    description: "1.2K examples: Tool-using coding agent trajectories"
+    num_examples: 1233
+    download_method: "huggingface"
+    
+  nemotron_swe:
+    repo_id: "nvidia/Nemotron-SFT-SWE-v3.5"
+    license: "CC-BY-4.0 with upstream licenses"
+    description: "5.1K examples: Repository-level software engineering agent trajectories"
+    num_examples: 5115
+    download_method: "huggingface"
+    note: "Contains tools field with function schemas"
+    
+  claude_fable:
+    repo_id: "Bc-AI/claude-fable-5-sft-clean"
+    license: "See dataset card"
+    description: "63 examples: Curated coding/agent examples"
+    num_examples: 63
+    download_method: "huggingface"
+    note: "Very small, high-quality specialty dataset"
+
+# Notes on licenses:
+# - CC-BY-NC-4.0: Attribution-NonCommercial - research/development use only
+# - CC-BY-4.0: Attribution - commercial use allowed with attribution
+# - Apache-2.0: Permissive open source license
+# - Mixed/Custom: Check individual dataset cards for details
+#
+# Important: ClimbMix's NC license may restrict commercial use of resulting models.
+# Consider this when planning model deployment.
