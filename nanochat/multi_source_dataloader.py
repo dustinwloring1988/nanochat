@@ -135,7 +135,10 @@ class DocumentBatchIterator:
                 # Process row groups for this file
                 while rg_idx < pf.num_row_groups:
                     rg = pf.read_row_group(rg_idx)
-                    batch = rg.column('text').to_pylist()
+                    # Use the text column specified in the source metadata
+                    source_info = get_source(self.source_name)
+                    text_col = source_info.text_column if source_info else 'text'
+                    batch = rg.column(text_col).to_pylist()
                     
                     # Yield in tokenizer_batch_size chunks
                     for i in range(0, len(batch), self.tokenizer_batch_size):

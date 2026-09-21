@@ -28,6 +28,7 @@ class DatasetSource:
     description: str
     dataset_type: str  # "pretraining" or "sft"
     subsets: List[str] = field(default_factory=lambda: ["default"])
+    text_column: str = "text"  # Column name containing the text data
     total_tokens_approx: Optional[int] = None  # Approximate token count if known
     
     def get_cache_dir(self, subset: str = "default") -> str:
@@ -93,6 +94,26 @@ PRETRAINING_SOURCES = {
             "Nemotron-Pretraining-Moral-Scenarios"
         ],
         total_tokens_approx=41_800_000_000,
+    ),
+    "knowledge_pile": DatasetSource(
+        name="knowledge_pile",
+        repo_id="Query-of-CC/Knowledge_Pile",
+        license="Apache 2.0",
+        description="Knowledge-oriented corpus: biology, physics, math, science",
+        dataset_type="pretraining",
+        subsets=["default"],
+        text_column="content",  # Knowledge_Pile uses 'content' not 'text'
+        total_tokens_approx=50_000_000_000,  # Approximate based on corpus size
+    ),
+    "code_reasoning": DatasetSource(
+        name="code_reasoning",
+        repo_id="IFM/Code-Reasoning",
+        license="Apache 2.0",
+        description="Code reasoning with thinking processes - improves code understanding",
+        dataset_type="pretraining",
+        subsets=["code-thinking-v1"],
+        text_column="text",
+        total_tokens_approx=5_000_000_000,  # Approximate
     ),
 }
 

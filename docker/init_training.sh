@@ -31,13 +31,13 @@ echo "STEP 1: Training Tokenizer"
 echo "=========================================="
 echo ""
 echo "Building mixed corpus from multiple sources..."
-echo "This will download ~3 shards per source (~2GB total)"
+echo "This will download ~6 shards per source (~4GB total)"
 echo ""
 
 python -m scripts.tok_train_curriculum \
     --mix default \
     --total-chars 2000000000 \
-    --shards-per-source 15
+    --shards-per-source 30
 
 echo ""
 echo "Tokenizer training complete!"

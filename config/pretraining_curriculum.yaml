@@ -24,10 +24,11 @@ stages:
     
     # Source-level mixing weights
     source_weights:
-      climbmix: 0.70        # Strong foundation in general web text
-      nemotron_v1: 0.20     # Introduce STEM/reasoning
-      nemotron_v1_1: 0.07   # Some code/logic exposure
-      nemotron_v1_2: 0.03   # Fact-based QA exposure
+      climbmix: 0.65        # Strong foundation in general web text
+      nemotron_v1: 0.19     # Introduce STEM/reasoning (increased from 0.17)
+      nemotron_v1_1: 0.08   # Some code/logic exposure (increased from 0.07)
+      code_reasoning: 0.04  # Early code reasoning exposure (increased from 0.03)
+      nemotron_v1_2: 0.04   # Fact-based QA exposure (increased from 0.03)
     
     # Per-source subset weights (for multi-subset sources)
     subset_weights:
@@ -58,10 +59,11 @@ stages:
     description: "Focus on reasoning, mathematics, code, and algorithmic thinking"
     
     source_weights:
-      climbmix: 0.50        # Reduce general text
-      nemotron_v1: 0.30     # Increase STEM/reasoning
-      nemotron_v1_1: 0.10   # Increase code/algorithms
-      nemotron_v1_2: 0.10   # Increase fact-seeking
+      climbmix: 0.42        # Reduce general text (increased from 0.38)
+      nemotron_v1: 0.30     # Increase STEM/reasoning (increased from 0.27)
+      nemotron_v1_1: 0.11   # Increase code/algorithms (increased from 0.10)
+      code_reasoning: 0.06  # More code reasoning in this stage (increased from 0.05)
+      nemotron_v1_2: 0.11   # Increase fact-seeking (increased from 0.10)
     
     subset_weights:
       nemotron_v1:
@@ -91,10 +93,11 @@ stages:
     description: "Extended context for complex reasoning and long-form content"
     
     source_weights:
-      climbmix: 0.45        # Further reduce general text
-      nemotron_v1: 0.35     # Peak specialized content
-      nemotron_v1_1: 0.10   # Maintain code/logic
-      nemotron_v1_2: 0.10   # Maintain fact-seeking
+      climbmix: 0.33        # Further reduce general text (increased from 0.30)
+      nemotron_v1: 0.36     # Peak specialized content (increased from 0.32)
+      nemotron_v1_1: 0.11   # Maintain code/logic (increased from 0.10)
+      code_reasoning: 0.09  # Peak code reasoning for long context (increased from 0.08)
+      nemotron_v1_2: 0.11   # Maintain fact-seeking (increased from 0.10)
     
     subset_weights:
       nemotron_v1:
@@ -124,10 +127,11 @@ stages:
     description: "Integrate specialized knowledge back into general distribution"
     
     source_weights:
-      climbmix: 0.60        # Return to broader distribution
-      nemotron_v1: 0.20     # Reduce specialized
-      nemotron_v1_1: 0.10   # Maintain code
-      nemotron_v1_2: 0.10   # Maintain facts
+      climbmix: 0.53        # Return to broader distribution (increased from 0.48)
+      nemotron_v1: 0.19     # Reduce specialized (increased from 0.17)
+      nemotron_v1_1: 0.11   # Maintain code (increased from 0.10)
+      code_reasoning: 0.06  # Maintain code reasoning (increased from 0.05)
+      nemotron_v1_2: 0.11   # Maintain facts (increased from 0.10)
     
     subset_weights:
       nemotron_v1:

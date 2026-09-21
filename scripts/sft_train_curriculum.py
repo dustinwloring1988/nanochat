@@ -131,21 +131,71 @@ if use_curriculum:
         print0(f"  Sources: {list(source_weights.keys())}")
         
         # Build task mixture for this stage
+        # Strategy: 
+        # 1. Each dataset should be seen for at most its target epochs (max 2.0)
+        # 2. Weights determine relative sampling frequency (achieved by adding copies)
+        # 3. Calculate total iterations to respect epoch limits
+        
+        dataset_epochs = stage.get("dataset_epochs", {})
         tasks = []
+        dataset_stats = []
+        
+        # First pass: collect dataset info
         for source_name, weight in source_weights.items():
             if source_name in DATASET_REGISTRY:
                 dataset = DATASET_REGISTRY[source_name]()
-                # TaskMixture doesn't support weights, so repeat tasks proportionally
-                # Round weights to get integer counts (at least 1 copy each)
-                copies = max(1, int(weight * 100))  # Scale by 100 for finer granularity
-                for _ in range(copies):
-                    tasks.append(dataset)
-                print0(f"    {source_name}: {weight:.1%} ({dataset.num_examples()} examples) x{copies} copies")
+                num_examples = dataset.num_examples()
+                
+                # Get target epochs for this dataset in this stage (from config)
+                target_epochs = dataset_epochs.get(source_name, 1.0)
+                
+                # Enforce max 2 epochs
+                actual_epochs = min(target_epochs, 2.0)
+                if target_epochs > 2.0:
+                    print0(f"    Warning: Capping {source_name} to 2.0 epochs (config wanted {target_epochs:.2f})")
+                
+                dataset_stats.append({
+                    "name": source_name,
+                    "dataset": dataset,
+                    "weight": weight,
+                    "num_examples": num_examples,
+                    "max_epochs": actual_epochs,
+                })
+        
+        # Second pass: add datasets to mixture proportionally to weights
+        # Use integer copies to approximate weights
+        for stat in dataset_stats:
+            # Scale weights to get integer copies (minimum 1, scaled by 100 for precision)
+            copies = max(1, round(stat["weight"] * 100))
+            for _ in range(copies):
+                tasks.append(stat["dataset"])
+            stat["copies"] = copies
+            print0(f"    {stat['name']}: {stat['weight']:.1%} weight, ≤{stat['max_epochs']:.2f} epochs, {stat['num_examples']} examples, {copies} copies in mixture")
         
         task_mixture = TaskMixture(tasks)
         
-        # Calculate iterations for this stage
-        stage_iterations = int(task_mixture.num_examples() * epoch_ratio / (args.device_batch_size * ddp_world_size))
+        # Calculate iterations based on epoch limits
+        # TaskMixture samples uniformly from all task copies
+        # Probability of sampling dataset_i = copies_i / total_copies
+        # Expected samples from dataset_i = total_samples * (copies_i / total_copies)
+        # Expected epochs for dataset_i = expected_samples / num_examples_i
+        #                                = total_samples * (copies_i / total_copies) / num_examples_i
+        # We want: expected_epochs ≤ max_epochs_i
+        # Therefore: total_samples ≤ max_epochs_i * num_examples_i * (total_copies / copies_i)
+        
+        batch_size = args.device_batch_size * ddp_world_size
+        total_copies = len(tasks)
+        min_total_samples = float('inf')
+        limiting_dataset = None
+        
+        for stat in dataset_stats:
+            max_total_samples = stat["max_epochs"] * stat["num_examples"] * (total_copies / stat["copies"])
+            if max_total_samples < min_total_samples:
+                min_total_samples = max_total_samples
+                limiting_dataset = stat["name"]
+        
+        stage_iterations = int(min_total_samples / batch_size)
+        print0(f"  Stage iterations: {stage_iterations} (limited by {limiting_dataset} to respect {stat['max_epochs']:.2f} epoch max)")
         total_iterations += stage_iterations
         
         curriculum_stages.append({
@@ -154,8 +204,6 @@ if use_curriculum:
             "iterations": stage_iterations,
             "context_range": context_range,
         })
-        
-        print0(f"  Stage iterations: {stage_iterations}")
     
     print0(f"\nTotal curriculum iterations: {total_iterations}")
     print0("="*80 + "\n")
