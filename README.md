@@ -18,11 +18,12 @@ docker-compose up nanochat-train-auto
 
 This single command will:
 1. Build the Docker image (first time: ~5-10 min)
-2. Train the tokenizer (~30-45 min)
-3. Download datasets (~10-20 min)
-4. Train a depth=6 test model (~2-4 hours)
+2. Train the tokenizer on mixed corpus (~30-45 min)
+3. Download datasets (~10-20 min)  
+4. Run 4-stage curriculum pretraining (~2-4 hours for depth=6)
+5. Run 3-stage SFT curriculum with 5 datasets (~30-60 min)
 
-**Total time: ~3-5 hours unattended**
+**Total time: ~4-6 hours unattended**
 
 After training completes, chat with your model:
 
@@ -30,9 +31,37 @@ After training completes, chat with your model:
 docker-compose run --rm nanochat-train bash -c "source .venv/bin/activate && python -m scripts.chat_cli"
 ```
 
-Your trained models are saved to `./checkpoints/` and datasets to `./data/` (persisted between runs).
+Your trained models are saved to `./data/base_checkpoints/` and `./data/sft_checkpoints/`, with datasets in `./data/` (all persisted between runs).
 
-**Requirements:** Docker with NVIDIA GPU support (NVIDIA Container Toolkit). See [DOCKER_TRAINING.md](DOCKER_TRAINING.md) for detailed guide and troubleshooting.
+### Docker Quick Reference
+
+```bash
+# Build image
+docker-compose build nanochat-train
+
+# Interactive mode (manual control)
+docker-compose run --rm nanochat-train bash
+
+# View logs
+docker-compose logs -f nanochat-train-auto
+
+# Stop training
+docker-compose down
+
+# Check GPU
+nvidia-smi
+```
+
+### Troubleshooting Docker
+
+**GPU not available:** Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
+**Out of memory:** Reduce batch size in `runs/curriculum_4060ti.sh`:
+```bash
+--device-batch-size 24  # Try 16, 8, 4, or 2
+```
+
+**Requirements:** Docker with NVIDIA GPU support, 16GB+ VRAM recommended for depth=6 testing.
 
 ## Time-to-GPT-2 Leaderboard
 
