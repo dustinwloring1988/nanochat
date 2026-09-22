@@ -6,7 +6,7 @@ https://huggingface.co/datasets/nvidia/Nemotron-SFT-SWE-v3.5
 Includes 'tools' field with bash, editor, and other SWE tools.
 """
 
-from tasks.common import Task, load_hub_dataset
+from tasks.common import Task, load_hub_dataset, normalize_messages
 
 class NemotronSWE(Task):
     """Nemotron SFT SWE v3.5 dataset. 5.1K software engineering agent examples."""
@@ -22,25 +22,19 @@ class NemotronSWE(Task):
         return self.length
 
     def get_example(self, index):
+        import json
         row = self.ds[index]
-        messages = row["messages"]
-        tools = row.get("tools", [])  # SWE tool definitions (bash, editor, etc.)
+        messages = normalize_messages(row.get("messages", []))
         
-        # Sanity checks
-        assert len(messages) >= 2, "Must have at least 2 messages"
+        # Handle tools field
+        tools = row.get("tools", [])
+        if isinstance(tools, str):
+            try:
+                tools = json.loads(tools)
+            except Exception:
+                tools = []
         
-        # Check for system message
-        first_message = messages[0]
-        if first_message["role"] == "system":
-            rest_messages = messages[1:]
-        else:
-            rest_messages = messages
-        
-        assert len(rest_messages) >= 2, "Must have at least user+assistant"
-        
-        # Build conversation with tools
         conversation = {"messages": messages}
-        if tools:
+        if tools and isinstance(tools, list):
             conversation["tools"] = tools
-        
         return conversation

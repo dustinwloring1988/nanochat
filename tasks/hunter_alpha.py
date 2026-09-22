@@ -6,7 +6,7 @@ https://huggingface.co/datasets/heegyu/Hunter-Alpha-Coding-Agent-SFT
 Includes 'tools' field with function definitions and multi-turn tool use.
 """
 
-from tasks.common import Task, load_hub_dataset
+from tasks.common import Task, load_hub_dataset, normalize_messages
 
 class HunterAlpha(Task):
     """Hunter Alpha coding agent dataset. 1.2K tool-using agent examples."""
@@ -22,27 +22,19 @@ class HunterAlpha(Task):
         return self.length
 
     def get_example(self, index):
+        import json
         row = self.ds[index]
-        messages = row["messages"]
-        tools = row.get("tools", [])  # Tool definitions
+        messages = normalize_messages(row.get("messages", []))
         
-        # Sanity checks
-        assert len(messages) >= 2, "Must have at least 2 messages"
+        # Handle tools field - might be a JSON string, list, or missing
+        tools = row.get("tools", [])
+        if isinstance(tools, str):
+            try:
+                tools = json.loads(tools)
+            except Exception:
+                tools = []
         
-        # Check for system message
-        first_message = messages[0]
-        if first_message["role"] == "system":
-            rest_messages = messages[1:]
-        else:
-            rest_messages = messages
-        
-        # Verify alternating structure (user/assistant/tool results)
-        # Note: This dataset has tool use, so roles can be user/assistant/tool
-        assert len(rest_messages) >= 2, "Must have at least user+assistant"
-        
-        # Build conversation with tools
         conversation = {"messages": messages}
-        if tools:
+        if tools and isinstance(tools, list):
             conversation["tools"] = tools
-        
         return conversation

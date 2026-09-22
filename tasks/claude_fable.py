@@ -6,7 +6,7 @@ https://huggingface.co/datasets/Bc-AI/claude-fable-5-sft-clean
 Small but valuable dataset for quality-focused fine-tuning.
 """
 
-from tasks.common import Task, load_hub_dataset
+from tasks.common import Task, load_hub_dataset, normalize_messages
 
 class ClaudeFable(Task):
     """Claude Fable 5 SFT Clean dataset. 63 high-quality curated examples."""
@@ -23,25 +23,5 @@ class ClaudeFable(Task):
 
     def get_example(self, index):
         row = self.ds[index]
-        messages = row["messages"]
-        
-        # Sanity checks
-        assert len(messages) >= 2, "Must have at least 2 messages"
-        
-        # Check for system message
-        first_message = messages[0]
-        if first_message["role"] == "system":
-            rest_messages = messages[1:]
-        else:
-            rest_messages = messages
-        
-        # Verify alternating user/assistant
-        assert len(rest_messages) >= 2, "Must have at least user+assistant"
-        for i, message in enumerate(rest_messages):
-            expected_role = "user" if i % 2 == 0 else "assistant"
-            # Allow some flexibility for multi-turn conversations
-            if message["role"] not in ["user", "assistant", "system"]:
-                continue  # Skip tool messages if present
-            assert isinstance(message["content"], str), "Content must be a string"
-        
+        messages = normalize_messages(row.get("messages", []))
         return {"messages": messages}

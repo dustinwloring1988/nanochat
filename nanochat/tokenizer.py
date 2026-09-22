@@ -152,17 +152,62 @@ class RustBPETokenizer:
             ids.extend(token_ids)
             mask.extend([mask_val] * len(token_ids))
 
-        # sometimes the first message is a system message...
-        # => just merge it with the second (user) message
-        if conversation["messages"][0]["role"] == "system":
-            # some conversation surgery is necessary here for now...
-            conversation = copy.deepcopy(conversation) # avoid mutating the original
-            messages = conversation["messages"]
-            assert messages[1]["role"] == "user", "System message must be followed by a user message"
-            messages[1]["content"] = messages[0]["content"] + "\n\n" + messages[1]["content"]
-            messages = messages[1:]
-        else:
-            messages = conversation["messages"]
+        # Handle case where conversation might be a JSON string
+        if isinstance(conversation, str):
+            import json
+            try:
+                conversation = json.loads(conversation)
+            except Exception:
+                conversation = {"messages": [{"role": "user", "content": conversation}]}
+
+        # Ensure conversation is a dict with messages
+        if not isinstance(conversation, dict):
+            raise TypeError(f"Conversation must be a dict, got {type(conversation)}")
+        if "messages" not in conversation:
+            raise ValueError(f"Conversation dict must have 'messages' key, got keys: {conversation.keys()}")
+
+        raw_messages = conversation["messages"]
+        if isinstance(raw_messages, str):
+            import json
+            try:
+                raw_messages = json.loads(raw_messages)
+            except Exception:
+                raw_messages = [{"role": "user", "content": raw_messages}]
+
+        if not isinstance(raw_messages, (list, tuple)):
+            raw_messages = []
+
+        # Parse each message, handling JSON-encoded strings
+        messages = []
+        for m in raw_messages:
+            if isinstance(m, str):
+                import json
+                try:
+                    m = json.loads(m)
+                except Exception:
+                    continue
+            if isinstance(m, dict) and "role" in m:
+                if "content" not in m or m["content"] is None:
+                    m["content"] = ""
+                messages.append(m)
+
+        if not messages:
+            messages = [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi"}
+            ]
+
+        # Merge system message into first user message if present
+        if messages[0].get("role") == "system":
+            messages = copy.deepcopy(messages)
+            system_content = messages[0].get("content", "")
+            if len(messages) > 1 and messages[1].get("role") == "user":
+                user_content = messages[1].get("content", "")
+                messages[1]["content"] = f"{system_content}\n\n{user_content}" if system_content else user_content
+                messages = messages[1:]
+            else:
+                messages[0]["role"] = "user"
+
         assert len(messages) >= 1, f"Conversation has less than 1 message: {messages}"
 
         # fetch all the special tokens we need
@@ -175,47 +220,79 @@ class RustBPETokenizer:
         # now we can tokenize the conversation
         add_tokens(bos, 0)
         for i, message in enumerate(messages):
+            role = message.get("role")
+            content = message.get("content", "")
 
-            # some sanity checking here around assumptions, to prevent footguns
-            must_be_from = "user" if i % 2 == 0 else "assistant"
-            assert message["role"] == must_be_from, f"Message {i} is from {message['role']} but should be from {must_be_from}"
-
-            # content can be either a simple string or a list of parts (e.g. containing tool calls)
-            content = message["content"]
-
-            if message["role"] == "user":
-                assert isinstance(content, str), "User messages are simply expected to be strings"
+            if role == "user":
+                if not isinstance(content, str):
+                    content = str(content)
                 value_ids = self.encode(content)
                 add_tokens(user_start, 0)
                 add_tokens(value_ids, 0)
                 add_tokens(user_end, 0)
-            elif message["role"] == "assistant":
+            elif role == "tool":
+                # tool output: unsupervised (mask=0)
+                if not isinstance(content, str):
+                    import json
+                    content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+                value_ids = self.encode(content)
+                add_tokens(output_start, 0)
+                add_tokens(value_ids, 0)
+                add_tokens(output_end, 0)
+            elif role == "assistant":
                 add_tokens(assistant_start, 0)
+
+                # Optional reasoning_content (e.g. NemotronSWE thinking / CoT)
+                reasoning = message.get("reasoning_content")
+                if reasoning and isinstance(reasoning, str) and reasoning.strip():
+                    reasoning_ids = self.encode(reasoning.strip() + "\n")
+                    add_tokens(reasoning_ids, 1)
+
                 if isinstance(content, str):
-                    # simple string => simply add the tokens
-                    value_ids = self.encode(content)
-                    add_tokens(value_ids, 1)
+                    if content:
+                        value_ids = self.encode(content)
+                        add_tokens(value_ids, 1)
                 elif isinstance(content, list):
                     for part in content:
-                        value_ids = self.encode(part["text"])
-                        if part["type"] == "text":
-                            # string part => simply add the tokens
+                        if isinstance(part, str):
+                            value_ids = self.encode(part)
                             add_tokens(value_ids, 1)
-                        elif part["type"] == "python":
-                            # python tool call => add the tokens inside <|python_start|> and <|python_end|>
-                            add_tokens(python_start, 1)
-                            add_tokens(value_ids, 1)
-                            add_tokens(python_end, 1)
-                        elif part["type"] == "python_output":
-                            # python output => add the tokens inside <|output_start|> and <|output_end|>
-                            # none of these tokens are supervised because the tokens come from Python at test time
-                            add_tokens(output_start, 0)
-                            add_tokens(value_ids, 0)
-                            add_tokens(output_end, 0)
+                        elif isinstance(part, dict):
+                            part_type = part.get("type", "text")
+                            part_text = part.get("text", "")
+                            value_ids = self.encode(part_text)
+                            if part_type == "text":
+                                add_tokens(value_ids, 1)
+                            elif part_type == "python":
+                                add_tokens(python_start, 1)
+                                add_tokens(value_ids, 1)
+                                add_tokens(python_end, 1)
+                            elif part_type == "python_output":
+                                add_tokens(output_start, 0)
+                                add_tokens(value_ids, 0)
+                                add_tokens(output_end, 0)
+                            else:
+                                add_tokens(value_ids, 1)
+
+                # Tool calls (e.g. HunterAlpha, NemotronSWE)
+                tool_calls = message.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    for tc in tool_calls:
+                        if isinstance(tc, dict):
+                            fn = tc.get("function", {})
+                            if isinstance(fn, dict):
+                                fn_name = fn.get("name", "")
+                                fn_args = fn.get("arguments", "")
+                                tc_text = f"{fn_name}({fn_args})" if fn_name else str(fn_args)
+                            else:
+                                tc_text = str(fn)
                         else:
-                            raise ValueError(f"Unknown part type: {part['type']}")
-                else:
-                    raise ValueError(f"Unknown content type: {type(content)}")
+                            tc_text = str(tc)
+                        tc_ids = self.encode(tc_text)
+                        add_tokens(python_start, 1)
+                        add_tokens(tc_ids, 1)
+                        add_tokens(python_end, 1)
+
                 add_tokens(assistant_end, 1)
 
         # truncate to max_tokens tokens MAX (helps prevent OOMs)

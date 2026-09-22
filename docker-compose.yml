@@ -21,6 +21,10 @@ services:
       - ./checkpoints:/workspace/checkpoints      # Model checkpoints (persistent)
       - ./runs:/workspace/runs                    # Run scripts
       - ./config:/workspace/config                # Configuration files
+      - ./nanochat:/workspace/nanochat            # Source code
+      - ./scripts:/workspace/scripts              # Scripts
+      - ./tasks:/workspace/tasks                  # Tasks
+      - ./docker:/workspace/docker                # Docker entry scripts
     
     # Environment variables
     environment:

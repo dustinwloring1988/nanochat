@@ -168,6 +168,12 @@ def load_model(source, *args, **kwargs):
     }[source]
     base_dir = get_base_dir()
     checkpoints_dir = os.path.join(base_dir, model_dir)
+    if source == "sft":
+        model_tag = kwargs.get("model_tag")
+        if not os.path.exists(checkpoints_dir) or (model_tag and not os.path.exists(os.path.join(checkpoints_dir, model_tag))):
+            alt_dir = os.path.join(base_dir, "sft_checkpoints")
+            if os.path.exists(alt_dir) and (not model_tag or os.path.exists(os.path.join(alt_dir, model_tag))):
+                checkpoints_dir = alt_dir
     return load_model_from_dir(checkpoints_dir, *args, **kwargs)
 
 def load_optimizer_state(source, device, rank, model_tag=None, step=None):
@@ -179,6 +185,11 @@ def load_optimizer_state(source, device, rank, model_tag=None, step=None):
     }[source]
     base_dir = get_base_dir()
     checkpoints_dir = os.path.join(base_dir, model_dir)
+    if source == "sft":
+        if not os.path.exists(checkpoints_dir) or (model_tag and not os.path.exists(os.path.join(checkpoints_dir, model_tag))):
+            alt_dir = os.path.join(base_dir, "sft_checkpoints")
+            if os.path.exists(alt_dir) and (not model_tag or os.path.exists(os.path.join(alt_dir, model_tag))):
+                checkpoints_dir = alt_dir
     if model_tag is None:
         model_tag = find_largest_model(checkpoints_dir)
     checkpoint_dir = os.path.join(checkpoints_dir, model_tag)

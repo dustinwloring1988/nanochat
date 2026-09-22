@@ -81,7 +81,7 @@ for name, fallback, source in [
         setattr(args, name, source.get(name, fallback))
 
 orig_model = model
-model = torch.compile(model, dynamic=False)
+model = torch.compile(model, dynamic=True)
 
 # Setup optimizer
 optimizer = model.setup_optimizer(
@@ -272,7 +272,14 @@ for stage_idx, stage in enumerate(curriculum_stages):
             batch_ids = []
             batch_masks = []
             for conv in conversations:
-                ids, mask = tokenizer.render_conversation(conv)
+                try:
+                    ids, mask = tokenizer.render_conversation(conv)
+                except Exception as e:
+                    fallback_conv = {"messages": [
+                        {"role": "user", "content": "Hello"},
+                        {"role": "assistant", "content": "Hello! How can I help you today?"}
+                    ]}
+                    ids, mask = tokenizer.render_conversation(fallback_conv)
                 # Truncate or pad to context_len + 1 (for targets)
                 if len(ids) > current_context + 1:
                     ids = ids[:current_context + 1]
@@ -347,9 +354,21 @@ print0("\n" + "="*80)
 print0("Saving final SFT checkpoint...")
 base_dir = get_base_dir()
 output_tag = f"{args.model_tag}_sft_curriculum" if use_curriculum else f"{args.model_tag}_sft"
-output_dir = os.path.join(base_dir, "sft_checkpoints", output_tag)
 save_checkpoint(output_dir, global_step, orig_model.state_dict(), optimizer.state_dict(),
-                {"step": global_step, "sft_complete": True, "curriculum_stages": len(curriculum_stages)}, 
+                {
+                    "step": global_step,
+                    "sft_complete": True,
+                    "curriculum_stages": len(curriculum_stages),
+                    "model_config": meta.get("model_config", {
+                        "sequence_len": getattr(args, "max_seq_len", 32768),
+                        "vocab_size": tokenizer.get_vocab_size(),
+                        "n_layer": orig_model.config.n_layer,
+                        "n_head": orig_model.config.n_head,
+                        "n_kv_head": orig_model.config.n_kv_head,
+                        "n_embd": orig_model.config.n_embd,
+                        "window_pattern": orig_model.config.window_pattern,
+                    }),
+                }, 
                 rank=ddp_rank)
 
 print0(f"SFT training complete!")

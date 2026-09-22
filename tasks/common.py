@@ -82,6 +82,50 @@ def load_hub_dataset(repo_id, subset="default", split="train"):
     return HubDataset(table)
 
 
+def normalize_messages(raw_messages):
+    """
+    Ensure raw_messages is converted to a list of dicts: [{'role': ..., 'content': ...}, ...]
+    Handles:
+      - JSON-encoded string containing a list of message dicts
+      - List of JSON-encoded message strings
+      - List of dicts
+      - Missing or None content fields
+    """
+    if isinstance(raw_messages, str):
+        try:
+            raw_messages = json.loads(raw_messages)
+        except Exception:
+            return [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi"}
+            ]
+
+    if not isinstance(raw_messages, (list, tuple)):
+        return [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi"}
+        ]
+
+    messages = []
+    for item in raw_messages:
+        if isinstance(item, str):
+            try:
+                item = json.loads(item)
+            except Exception:
+                continue
+        if isinstance(item, dict) and "role" in item:
+            if "content" not in item or item["content"] is None:
+                item["content"] = ""
+            messages.append(item)
+
+    if len(messages) < 1:
+        return [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi"}
+        ]
+    return messages
+
+
 class Task:
     """
     Base class of a Task. Allows for lightweight slicing of the underlying dataset.

@@ -58,64 +58,8 @@ echo ""
 python -m nanochat.data_registry --download climbmix -n 40 -w 4
 
 echo ""
-echo "Downloading Knowledge_Pile dataset..."
-echo "  - Knowledge-oriented corpus for enhanced scientific understanding"
-echo ""
-
-# Download Knowledge_Pile - this is a smaller dataset so we'll download more samples
-# The dataset has 'content' field with the actual text
-python -c "
-from datasets import load_dataset
-from nanochat.common import get_base_dir
-import os
-
-print('Loading Knowledge_Pile dataset...')
-# Load first split/subset to sample from
-ds = load_dataset('Query-of-CC/Knowledge_Pile', split='train', streaming=True)
-print('Dataset loaded in streaming mode')
-
-# We'll download and cache a portion for training
-# Since this runs in the container, the dataset will be cached by HuggingFace
-sample_count = 0
-for example in ds:
-    sample_count += 1
-    if sample_count >= 10000:  # Cache first 10K examples
-        break
-    if sample_count % 1000 == 0:
-        print(f'Cached {sample_count} examples...')
-
-print(f'Completed caching {sample_count} Knowledge_Pile examples')
-"
-
-echo ""
-echo "Downloading Code-Reasoning dataset (code-thinking-v1 subset)..."
-echo "  - Code reasoning with thinking processes"
-echo ""
-
-# Download Code-Reasoning dataset
-python -c "
-from datasets import load_dataset
-print('Loading Code-Reasoning dataset (code-thinking-v1 subset)...')
-ds = load_dataset('IFM/Code-Reasoning', 'code-thinking-v1', split='train', streaming=True)
-print('Dataset loaded in streaming mode')
-
-sample_count = 0
-for example in ds:
-    sample_count += 1
-    if sample_count >= 5000:  # Cache first 5K examples
-        break
-    if sample_count % 500 == 0:
-        print(f'Cached {sample_count} examples...')
-
-print(f'Completed caching {sample_count} Code-Reasoning examples')
-"
-
-echo ""
 echo "Dataset download complete!"
 echo ""
-
-# Note: Nemotron datasets would be downloaded via HuggingFace datasets
-# For this test run, we'll use ClimbMix only to keep things simple
 
 # ===================================================================
 # Stage 2: Curriculum Pretraining

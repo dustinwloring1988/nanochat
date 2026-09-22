@@ -1,94 +1,58 @@
 # NanoChat Curriculum Training - Changelog
 
-## v0.3.0 - Ready for Baseline (2026-09-21)
+## v0.2.0 - Multi-Dataset SFT Curriculum & Baseline Run (2026-09-20 to 2026-09-22)
 
 ### Summary
-Final preparation release before establishing baseline. All features implemented and tested, ready for fresh training run.
+Complete implementation, end-to-end verification, and baseline benchmark execution of the multi-source, multi-dataset curriculum training pipeline (Tokenizer → 4-stage Pretraining → 3-stage SFT → Automated Benchmarking).
 
-### Completed
-- ✅ Full end-to-end pipeline functional (tokenizer → pretraining → SFT)
-- ✅ Multi-dataset SFT curriculum with 5 datasets
-- ✅ All dataset Task classes implemented and tested
-- ✅ Docker configuration optimized for faster rebuilds
-- ✅ Documentation consolidated (removed DOCKER_TRAINING.md)
-- ✅ Validation properly skipped during curriculum training
+### Completed Features
 
-### What's Ready
-**Tokenizer Training:**
-- Mixed corpus: 60% ClimbMix + 30% Nemotron (3 versions) + 5% SFT samples (5 datasets)
-- Total: ~2B characters sampled from all sources
-
-**Pretraining (4 stages):**
-- Foundation: 2K→4K context, 70% ClimbMix + 20% Nemotron-v1 + 7% v1.1 + 3% v1.2
-- Reasoning+Code: 4K→8K context, 50% ClimbMix + 30% Nemotron-v1 + 13% v1.1 + 7% v1.2
-- Long Context: 8K→16K context, 45% ClimbMix + 35% Nemotron-v1 + 13% v1.1 + 7% v1.2
-- Consolidation: 16K context, 60% ClimbMix + 20% Nemotron-v1 + 13% v1.1 + 7% v1.2
-
-**SFT (3 stages):**
-- Instruction Alignment: 8K context, 65% SmolTalk + 20% Nemotron-Multilingual + 10% Hunter-Alpha + 3% Nemotron-SWE + 2% Claude-Fable
-- Coding & Agents: 16K context, 35% SmolTalk + 10% Nemotron-Multilingual + 15% Hunter-Alpha + 38% Nemotron-SWE + 2% Claude-Fable
-- Consolidation: 16K→32K context, 45% SmolTalk + 10% Nemotron-Multilingual + 10% Hunter-Alpha + 32% Nemotron-SWE + 3% Claude-Fable
-
-### Files Changed
-- Updated: `README.md` - Consolidated Docker documentation
-- Updated: `CHANGELOG.md` - New versioned format
-- Deleted: `DOCKER_TRAINING.md` - Info moved to README
-
-### Known Issues
-- Docker builds can timeout on slower networks (workaround: use `--cache-from`)
-- Nemotron-Multilingual uses only `code_hi` split (34K examples) as sample; full implementation would load all 12 language splits
-
-### Next Steps
-1. Rebuild Docker image with latest code
-2. Run baseline training from scratch
-3. Establish metrics before making further changes
-
----
-
-## v0.2.0 - Multi-Dataset SFT Curriculum (2026-09-20 to 2026-09-21)
-
-### Major Features Added
-
-#### SFT Curriculum Training
-- **New script:** `scripts/sft_train_curriculum.py` - Multi-dataset curriculum SFT
-- **New config:** `config/sft_curriculum.yaml` - 3-stage SFT curriculum definition
+#### Multi-Dataset SFT Curriculum
+- **New script:** `scripts/sft_train_curriculum.py` - Multi-dataset curriculum SFT supporting context ramps and dynamic shapes.
+- **New config:** `config/sft_curriculum.yaml` - 3-stage SFT curriculum definition:
+  - Stage 1 (Instruction Alignment): 8K context, 65% SmolTalk + 20% Nemotron-Multilingual + 10% Hunter-Alpha + 3% Nemotron-SWE + 2% Claude-Fable
+  - Stage 2 (Coding & Agents): 16K context, 35% SmolTalk + 10% Nemotron-Multilingual + 15% Hunter-Alpha + 38% Nemotron-SWE + 2% Claude-Fable
+  - Stage 3 (Consolidation): 16K→32K context ramp, 45% SmolTalk + 10% Nemotron-Multilingual + 10% Hunter-Alpha + 32% Nemotron-SWE + 3% Claude-Fable
 - **New dataset Tasks:**
   - `tasks/nemotron_multilingual.py` - NVIDIA multilingual (34K examples, Hindi code subset)
   - `tasks/hunter_alpha.py` - Tool-using coding agent (1.2K examples)
   - `tasks/nemotron_swe.py` - Repository-level SWE agents (5.1K examples)
   - `tasks/claude_fable.py` - Curated high-quality examples (63 examples)
-- **Dataset registry:** All 5 SFT sources registered in `nanochat/data_registry.py`
+- **Dataset Registry:** All 5 SFT sources registered in `nanochat/data_registry.py`.
 
-#### Training Pipeline
-- Updated `docker/init_training.sh` to use full SFT curriculum
-- Automatic progression: Tokenizer → Pretraining → SFT (all unattended)
-- Stage-aware training with proper context length scheduling
-- Multi-dataset weighted mixing within each stage
+#### End-to-End Automated Pipeline & Benchmarking
+- Updated `docker/init_training.sh` to run unattended end-to-end:
+  - Step 1: Mixed tokenizer training (~2B characters)
+  - Step 1.5: Pretraining datasets download
+  - Step 2: 4-stage curriculum pretraining (`d6_curriculum_4060ti`)
+  - Step 3: 3-stage multi-dataset SFT curriculum
+  - Step 4: Automated Benchmarking (`infer_bench` and `chat_eval`)
+- Updated `nanochat/checkpoint_manager.py` to seamlessly resolve checkpoints in both `sft_checkpoints/` and `chatsft_checkpoints/`.
 
-#### Technical Implementation
-- Custom batch generator for SFT curriculum stages
-- Proper handling of Task/TaskMixture APIs
-- Conversation rendering with tool schemas support
-- Error handling for malformed dataset examples
-- Progress tracking across all 3 SFT stages
+### Bug Fixes During Baseline Run
+- **Torch Compile Dynamic Shapes:** Switched `torch.compile(model, dynamic=True)` in `scripts/sft_train_curriculum.py` to prevent `torch._dynamo` hitting cache recompilation limits and falling back to eager mode during the Stage 3 context ramp.
+- **RoPE Embedding Cache Expansion:** Increased default rotary embedding buffer in `nanochat/gpt.py` from `config.sequence_len * 10` (20,480) to `max(config.sequence_len * 10, 65536)`, and added dynamic buffer doubling fallback in `forward` to support sequences up to 32,768+ tokens.
+- **SFT Checkpoint Metadata:** Fixed `scripts/sft_train_curriculum.py` to persist `model_config` in `meta_*.json` checkpoints so that downstream evaluation tools (`chat_eval`, `infer_bench`, `chat_cli`) can automatically reconstruct the model architecture.
+- **Task API & Batching:** Fixed `TaskMixture` weighting, dataset formatting parsers, and validation skipping for curriculum pretraining.
 
-### Bug Fixes
-- Fixed TaskMixture weight handling (use task repetition instead of tuple weights)
-- Fixed nemotron_multilingual dataset format parsing
-- Fixed batch generator to use correct Task.get_example() API
-- Fixed validation skip during curriculum training (no base_data directory)
-- Updated docker-compose image name from `nanochat-curriculum:latest` to `nanochat:latest`
+### Baseline Benchmark Results (RTX 4060 Ti 16GB, depth=6 test model)
 
-### Testing
-- Verified all 5 SFT datasets load successfully
-- Confirmed training runs with multi-dataset mixing
-- Validated stage transitions and context length changes
-- Tested with 100 iterations across curriculum stages
+#### 1. Inference Performance (`infer_bench`)
+- **Model Parameters:** 73,531,538 (50.3M bfloat16, 23.2M float32) | Weight bytes: 185 MiB
+- **Prefill (Prompt: 2,048 tokens):** **133,775 tok/s** | TTFT: **15.4 ms**
+- **Decode Performance:**
+  - Batch 1: **235 tok/s** (TPOT: 4.13 ms) | Peak VRAM: 1.04 GiB
+  - Batch 8: **1,828 tok/s** (TPOT: 4.23 ms) | Peak VRAM: 1.04 GiB
+  - Batch 32: **5,885 tok/s** (TPOT: 5.39 ms) | Peak VRAM: 1.17 GiB
+  - Batch 128: **9,490 tok/s** (TPOT: 13.44 ms) | Peak VRAM: 3.09 GiB
 
-### Performance
-- Training speed: ~450ms per step @ 8K context on 4060Ti
-- Memory: ~12GB VRAM with batch_size=4
-- All 5 datasets loading and mixing correctly in weighted proportions
+#### 2. Chat Quality Evaluation (`chat_eval`, 50 problems/task)
+- **ARC-Easy:** **26.00%** (Baseline: 25.0%)
+- **ARC-Challenge:** **22.00%** (Baseline: 25.0%)
+- **MMLU:** **28.00%** (Baseline: 25.0%)
+- **GSM8K:** **0.00%** (Open-ended math reasoning)
+- **HumanEval:** **0.00%** (Open-ended code synthesis)
+- **ChatCORE Score:** **0.0027**
 
 ---
 
