@@ -1,6 +1,6 @@
 # Nanochat AI Scientist v2 — Remaining Work Plan
 
-- **Status:** Final handoff: one-node pilot complete; future work remains explicitly gated
+- **Status:** Final handoff: one-node pilot and fixed-context multi-stage proof complete; dynamic expansion remains gated
 - **Date:** 2026-09-24
 - **Last verified commit:** `50969cf` (`record cache separation decision`)
 - **Target:** RTX 4060 Ti, 16 GB VRAM
@@ -33,14 +33,14 @@ These are permanent safety rules, not deferred tasks:
 - A same-seed repeat ended at BPB `1.491474`; absolute delta is `0.000416`. The current numerical reproducibility tolerance is `0.001`, not bitwise equality; it is not a statistical candidate-acceptance threshold.
 - Live one-node BFTS passed with OpenCode `opencode/space-bunny-free` at BPB `1.491380` and OpenRouter `openrouter/stealth/space-bunny-alpha` at BPB `1.491395`.
 - OpenRouter's free endpoint omits usage metadata; its live run requires explicit `AI_SCIENTIST_ALLOW_MISSING_USAGE=1`, while API-call limits remain enforced.
-- Isolated GPU resume probe passed for a two-step, one-stage float32 curriculum run: model state delta `0`, optimizer delta `7.28e-12`, loader state exact, validation BPB `2.2683011088` in both paths, and resume curve steps/losses restored without duplication. The two-stage negative control failed closed with `stage transition blocked: pending batch must be consumed or checkpointed`.
-- Current verification: Linux container `120 passed, 10 skipped`; the 10 skips are FA3 capability-gated attention tests, while SDPA coverage passes. The focused AI/loader/checkpoint/curriculum suite passes `67 passed`; native Windows execution-sandbox tests remain non-authoritative because `resource` is unavailable. Black checks for integration files and compilation pass.
+- Isolated GPU resume probes passed for two-step one-stage and two-stage float32 curriculum runs: model/optimizer deltas were `0`, loader state and resume contracts were exact, and the two-stage run restored curriculum composition counters exactly. The two-stage reference/resume BPB was `2.268270`; dynamic context remains disabled.
+- Current verification: Linux container `125 passed, 10 skipped`; the 10 skips are FA3 capability-gated attention tests, while SDPA coverage passes. The focused AI/loader/checkpoint/curriculum suite passes `72 passed`; native Windows execution-sandbox tests remain non-authoritative because `resource` is unavailable. Black checks for integration files and compilation pass.
 
 ## Pilot decision
 
 - The approved current scope is complete: both live providers passed exactly one controller-attested BFTS node, and the root repository and external cache remained unchanged.
 - This commit is a research-integration checkpoint, not checkpoint promotion, patch application, paper generation, SFT approval, or permission to run a larger search.
-- Multi-stage inheritance, multi-node/multi-seed confirmation, and separate privilege-domain isolation remain future milestones; enable them only through an explicit follow-up approval. The supported one-node/one-stage real resume path is validated; successful multi-stage training remains intentionally blocked by the fail-closed pending-batch guard.
+- Multi-node/multi-seed confirmation and separate privilege-domain isolation remain future milestones; enable them only through an explicit follow-up approval. The fixed-context two-stage path is now validated, while dynamic context/long-context curriculum remains disabled.
 
 ## P0 — close before trusting any BFTS result
 
@@ -74,11 +74,11 @@ These are permanent safety rules, not deferred tasks:
 - [x] Integrate rank-local state loading and explicit state persistence into both training scripts.
 - [x] Add an offline checkpoint-boundary round trip proving resumed loader batches match the uninterrupted stream.
 - [x] Define and test a versioned stage-transition contract with cumulative composition counters.
-- [x] Select and enforce the fail-closed pending-batch policy at stage boundaries.
+- [x] Implement consume-before-transition semantics; unexpected pending batches still fail closed.
 - [x] Validate real one-stage GPU checkpoint/resume equivalence in an isolated temporary root.
 - [x] Prevent duplicate evaluation/metric side effects at the resume step and verify curve restoration.
-- [x] Validate the two-stage negative control fails closed before any loader reset.
-- [ ] **Future gate:** Prove successful multi-stage training and composition restoration before enabling dynamic stages.
+- [x] Validate real fixed-context two-stage GPU reference/resume equivalence and composition restoration.
+- [ ] **Future gate:** Enable dynamic context or long-context curriculum only after its own loader/shape/budget proof.
 - [x] Reject resume when model shape, curriculum schedule, seed, world size, token horizon, or dataloader configuration differs.
 - [x] Add stage/source composition metadata and a source-mixture plot to canonical results.
 - [x] Decide whether MFU is `null`/unknown or add a verified RTX 4060 Ti peak-FLOPS value; do not report unknown MFU as a measured zero.
@@ -102,7 +102,16 @@ These are real future work items, but remain disabled or prohibited during the c
 - [ ] Design and implement a human-approved promotion workflow for patch application, checkpoint promotion, commits, and pushes; never enable these actions automatically.
 - [ ] Implement and validate long-context curriculum research.
 
-## Temporary compatibility measures requiring eventual repair
+## Approved design-only follow-ons
+
+These designs are approved for documentation and review only; they do not authorize execution, promotion, reporting, or SFT.
+
+- [x] Define the SFT gate: separate data/manifest, checkpoint schema, evaluation contract, resource budget, and explicit human approval before any SFT run.
+- [x] Define the promotion gate: signed candidate manifest, clean-environment reproduction, human approval, and no automatic patch/cache/git writes.
+- [x] Define the long-context gate: bucketed shapes, effective batch and scheduler alignment, checkpoint migration, VRAM proof, and fixed-context fallback.
+- [x] Define the trace gate: versioned local JSONL, deterministic redaction, untrusted-content marking, retention/access policy, and secret-leak tests.
+- [ ] Implement any follow-on only after its separate design is reviewed and explicitly approved.
+
 
 - [ ] Replace fixed 2,048-token context with a tested bucketed/discrete context curriculum only after dataloader, compiled shapes, effective batch, scheduler budget, and checkpoint metadata are coordinated.
 - [ ] Move from the current same-container controller/worker arrangement to a separate controller and experiment-execution service or privilege domain.

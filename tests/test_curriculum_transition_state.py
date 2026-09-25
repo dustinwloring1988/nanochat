@@ -65,6 +65,22 @@ def transition_contract():
     return scheduler, state
 
 
+@pytest.mark.parametrize(
+    ("current_step", "expected"),
+    [(39, True), (40, False), (69, True), (70, False), (99, False)],
+)
+def test_stage_transition_decision_uses_next_optimization_step(current_step, expected):
+    scheduler, _ = transition_contract()
+
+    assert (
+        scheduler.is_stage_transition(
+            step=current_step + 1,
+            prev_step=current_step,
+        )
+        is expected
+    )
+
+
 def test_stage_transition_state_round_trip_is_json_compatible():
     scheduler, state = transition_contract()
 

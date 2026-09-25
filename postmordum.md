@@ -13,7 +13,7 @@ The initial implementation passed the complete Linux-container suite with 71 tes
 
 A second hardening pass now materializes a trusted baseline experiment configuration, enforces one-node BFTS execution, keeps artifacts project-relative, validates fixed-budget/result/guardrail contracts, removes the runtime repository mount, uses an allowlisted child environment, strengthens process-tree cleanup, and begins enforcing shared provider budgets without automatic prompt/response capture. The final regression also verifies controller-side result revalidation, detached controller attestation, mandatory source/cache/runtime provenance, fail-closed worker timeouts, explicit unknown-MFU handling, provider edge cases, curriculum composition metadata, active-versus-wall timing, resume-contract rejection, and pre/post integrity manifests.
 
-The integration is now validated through live one-node BFTS runs with both `opencode/space-bunny-free` and `openrouter/stealth/space-bunny-alpha`. The controller and generated code still share the same container identity; a separate privilege boundary remains future work. The loader now has a versioned exact snapshot/restore path, both training scripts load rank-local state, and an isolated real one-stage GPU resume probe passes; successful multi-stage training remains intentionally blocked by the fail-closed pending-batch guard. Candidate source inheritance passes an offline controller-level stage-1-to-4 regression but not a real multi-stage BFTS training run, and multi-node/multi-seed confirmation remains disabled by the one-node safety profile. Those items remain in `plan.md` rather than being duplicated as a task list here.
+The integration is now validated through live one-node BFTS runs with both `opencode/space-bunny-free` and `openrouter/stealth/space-bunny-alpha`. The controller and generated code still share the same container identity; a separate privilege boundary remains future work. The loader has a versioned exact snapshot/restore path, both training scripts load rank-local state, and isolated one-stage and fixed-context two-stage GPU resume probes pass. Dynamic context/long-context curriculum and real multi-stage BFTS remain gated. Candidate source inheritance passes an offline controller-level stage-1-to-4 regression but not a real multi-stage BFTS training run, and multi-node/multi-seed confirmation remains disabled by the one-node safety profile. Those items remain in `plan.md` rather than being duplicated as a task list here.
 
 ## Work completed
 
@@ -88,7 +88,7 @@ The first follow-up slice closed these items:
 - The Docker experiment path is consistently `/workspace/project/experiments`, with the tracked host placeholder and writable nested mount.
 - Provider/model tracing remains disabled by default; future trace capture still requires the redaction work in `plan.md`.
 
-The focused AI/loader/checkpoint/curriculum suite passes 67 tests in the Linux container, and the rebuilt Linux container passes 120 tests with 10 skipped. An isolated two-step one-stage float32 GPU probe additionally passed reference/resume equivalence with model delta `0`, optimizer delta `7.28e-12`, exact loader state, BPB `2.2683011088`, and matching curve steps/losses; the two-stage negative control failed closed at the pending-batch guard.
+The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux container, and the rebuilt Linux container passes 125 tests with 10 skipped. Isolated one-stage and fixed-context two-stage float32 GPU probes passed reference/resume equivalence with exact model, optimizer, loader, resume-contract, and composition state; the two-stage path reached BPB `2.268270`. Dynamic context remains disabled.
 
 ### Final hardening slice
 
@@ -105,7 +105,8 @@ The focused AI/loader/checkpoint/curriculum suite passes 67 tests in the Linux c
 - OpenRouter’s free endpoint omits usage and price metadata, so token limits are unavailable for that explicitly opted-in mode; API-call limits remain enforced.
 - Provider failures now cross process-pool boundaries as sanitized worker errors instead of terminating the pool.
 - Added an offline AgentManager regression that materializes accepted-parent source snapshots across main stages 1–4, verifies inherited node identity and marker propagation, and proves no provider call or second executed node occurs; real descendant training remains a future gate.
-- The resume audit confirmed that the previous loader state was approximate: source cursors were row-group coarse, document buffers and prefetched packed batches were not serialized, only rank 0 wrote common metadata, and stage transitions reset loader state. A versioned CPU-testable loader snapshot, rank-local checkpoint files, both training scripts, an offline checkpoint-boundary round trip, a versioned stage-transition contract, a fail-closed transition guard, and resume-step side-effect suppression now cover those pieces; an isolated one-stage GPU resume probe also passed, while successful multi-stage training remains future work.
+- The resume audit confirmed that the previous loader state was approximate: source cursors were row-group coarse, document buffers and prefetched packed batches were not serialized, only rank 0 wrote common metadata, and stage transitions reset loader state. A versioned CPU-testable loader snapshot, rank-local checkpoint files, both training scripts, an offline checkpoint-boundary round trip, a versioned stage-transition contract, consume-before-transition handling, and resume-step side-effect suppression now cover those pieces; isolated one-stage and fixed-context two-stage GPU probes pass, while dynamic context remains future work.
+- Follow-on SFT, promotion, long-context, and trace work is design-only at this stage; execution remains gated by the explicit approval criteria recorded in `plan.md`.
 
 ## Verification evidence
 
@@ -135,7 +136,8 @@ The following table records the verified baseline plus the completed regression 
 | Stage-transition contract tests | Passed; JSON round-trip, malformed/mismatched state rejection, boundary validation, and composition-counter preservation |
 | Fail-closed stage-transition guard | Passed; transitions with an explicit pending batch or missing pending state are rejected |
 | Real one-stage GPU resume probe | Passed; isolated float32 reference/resume, model delta 0, optimizer delta 7.28e-12, exact loader state, BPB 2.2683011088, matching curve steps/losses |
-| Real two-stage negative control | Expected fail-closed result; transition stopped with pending-batch guard before loader reset |
+| Real two-stage negative control | Superseded by the approved consume-before-transition policy; unexpected pending batches still fail closed |
+| Real fixed-context two-stage GPU resume probe | Passed; reference/resume model, optimizer, loader, contract, and composition state matched exactly; BPB 2.268270 |
 | Windows host test command | Documented `python -m pytest -q --ignore=tests/test_execution.py`; Linux container remains authoritative for the full suite |
 | OpenCode live preflight | Passed; catalog-listed, tool calls supported, structured output passed |
 | OpenCode live one-node BFTS | Passed; BPB 1.491380, controller-accepted result and attestation |
@@ -183,7 +185,7 @@ The original `runs/ai_scientist_smoke.sh` invoked a profile capable of running m
 | Candidate-authored result file | Generated code can write a plausible `results.json` in the shared account | Parent revalidation and detached HMAC attestation are implemented; move to a separate privilege domain for stronger isolation |
 | Candidate source inheritance | Archive/reuse is implemented and unit-tested after the review found silent reversion to root | Run a full multi-stage BFTS descendant test before treating stage results as cumulative |
 | Same-container execution boundary | Removing the repository bind and allowlisting the environment blocks accidental access but not same-UID inspection or sibling writes | Separate controller and generated execution into distinct services or privilege domains |
-| Improved but non-exact sampler resume | Versioned contracts reject incompatible model/data/curriculum settings; loader snapshots, rank-local files, both training scripts, an offline checkpoint round trip, a stage-transition contract, a fail-closed guard, and an isolated one-stage GPU resume probe preserve/load state, but successful multi-stage training is not enabled | Add successful multi-stage resume/composition tests before enabling research comparisons |
+| Improved but non-exact sampler resume | Versioned contracts reject incompatible model/data/curriculum settings; loader snapshots, rank-local files, both training scripts, offline and real one-/two-stage probes, and composition restoration preserve/load state; dynamic context remains disabled | Add dynamic-context/long-context proofs before enabling that research mode |
 | Linux-container test authority | Native Windows lacks Unix sandbox modules | Use `python -m pytest -q --ignore=tests/test_execution.py` on Windows; keep the Linux container authoritative for the full suite |
 | Live API path | OpenCode and OpenRouter one-node live paths pass; OpenRouter requires explicit missing-usage opt-in because its free endpoint omits token metadata | Keep credentials local, rerun preflight before live work, and do not weaken default fail-closed budgets |
 | Provider hardening verification | Offline retry, budget, multimodal, role-routing, trace-privacy, and live OpenCode/OpenRouter one-node checks pass | Keep live preflight and bounded one-node runs as the acceptance gate |
@@ -263,4 +265,5 @@ The canonical implementation specification and all unfinished work remain in `pl
 - `tests/test_checkpoint_manager.py`
 - `nanochat/curriculum_state.py`
 - `tests/test_curriculum_transition_state.py`
-- `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-resume-docker-97408ef017bb442eba8907cca4fbcfc9` (isolated GPU probe artifacts)
+- `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-resume-docker-97408ef017bb442eba8907cca4fbcfc9` (isolated one-stage GPU probe artifacts)
+- `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-multistage-docker-4e91528a9f4748bbabf4bc073e8dc38c` (isolated fixed-context two-stage GPU probe artifacts)

@@ -691,7 +691,7 @@ if use_curriculum and curriculum_scheduler is not None:
         device=device,
         resume_state_dict=dataloader_resume_state_dict,
         subset_weights=initial_subset_weights,
-        seed=args.seed,
+        seed=args.seed + initial_stage_idx * 1009,
     )
 
     # For validation, use single source (ClimbMix) for simplicity
@@ -716,9 +716,11 @@ x, y, dataloader_state_dict = next(train_loader)
 composition_stage_counts = []
 
 
-def record_composition_stage(state_dict):
+def record_composition_stage(state_dict, stage_index, stage_name):
     composition_stage_counts.append(
         {
+            "stage_index": int(stage_index),
+            "stage_name": stage_name,
             "source_tokens": {
                 name: int(count)
                 for name, count in (state_dict.get("source_token_counts") or {}).items()
@@ -815,6 +817,7 @@ else:
     smooth_train_loss = loop_state["smooth_train_loss"]
     total_training_time = loop_state["total_training_time"]
     current_stage_idx = loop_state.get("current_stage_idx", initial_stage_idx)
+    composition_stage_counts = loop_state.get("composition_stage_counts", [])
     curve_steps = loop_state.get("curve_steps", [])
     curve_train_loss = loop_state.get("curve_train_loss", [])
     curve_val_bpb = loop_state.get("curve_val_bpb", [])
@@ -843,6 +846,15 @@ while True:
     last_step = step == num_iterations
     flops_so_far = num_flops_per_token * total_batch_size * step
     skip_resume_step = resuming and step == args.resume_from_step
+    next_step_crosses_stage_boundary = (
+        use_curriculum
+        and curriculum_scheduler is not None
+        and step < num_iterations
+        and curriculum_scheduler.is_stage_transition(
+            step=step + 1,
+            prev_step=step,
+        )
+    )
 
     # Check for curriculum stage transition
     if use_curriculum and curriculum_scheduler is not None:
@@ -858,7 +870,11 @@ while True:
             print0(f"Context length: {stage_info['context_length']:,}")
             print0(f"Source weights: {stage_info['source_weights']}")
             print0("=" * 80)
-            record_composition_stage(dataloader_state_dict)
+            record_composition_stage(
+                dataloader_state_dict,
+                stage_index=current_stage_idx,
+                stage_name=curriculum_scheduler.stages[current_stage_idx].name,
+            )
             transition_weights = stage_info["source_weights"]
             transition_subset_weights = {}
             for source_name in transition_weights:
@@ -986,6 +1002,7 @@ while True:
                 "smooth_train_loss": smooth_train_loss,
                 "total_training_time": total_training_time,
                 "current_stage_idx": current_stage_idx,
+                "composition_stage_counts": composition_stage_counts,
                 "curve_steps": curve_steps,
                 "curve_train_loss": curve_train_loss,
                 "curve_val_bpb": curve_val_bpb,
@@ -1024,7 +1041,12 @@ while True:
             scaler.scale(loss).backward()
         else:
             loss.backward()
-        x, y, dataloader_state_dict = next(train_loader)
+        if micro_step == grad_accum_steps - 1 and next_step_crosses_stage_boundary:
+            if "pending_batch" not in dataloader_state_dict:
+                assert_stage_transition_has_no_pending_batch(dataloader_state_dict)
+            dataloader_state_dict["pending_batch"] = None
+        else:
+            x, y, dataloader_state_dict = next(train_loader)
 
     # Optimizer step
     lrm = get_lr_multiplier(step)
