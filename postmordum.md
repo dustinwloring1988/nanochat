@@ -187,7 +187,7 @@ The original `runs/ai_scientist_smoke.sh` invoked a profile capable of running m
 | Linux-container test authority | Native Windows lacks Unix sandbox modules | Use `python -m pytest -q --ignore=tests/test_execution.py` on Windows; keep the Linux container authoritative for the full suite |
 | Live API path | OpenCode and OpenRouter one-node live paths pass; OpenRouter requires explicit missing-usage opt-in because its free endpoint omits token metadata | Keep credentials local, rerun preflight before live work, and do not weaken default fail-closed budgets |
 | Provider hardening verification | Offline retry, budget, multimodal, role-routing, trace-privacy, and live OpenCode/OpenRouter one-node checks pass | Keep live preflight and bounded one-node runs as the acceptance gate |
-| External cache separation | The pilot data was placed in ignored repository `data/` rather than the user's external cache | Decide whether to promote the prepared data deliberately; never copy it into the trusted cache automatically |
+| External cache separation | The pilot data was placed in ignored repository `data/` rather than the user's external cache | Decision recorded: keep the caches separate; any future promotion remains human-only |
 
 The container compiler cache paths and build toolchain are not temporary model changes. They are required runtime support for trusted `torch.compile` execution.
 

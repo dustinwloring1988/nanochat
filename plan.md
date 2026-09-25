@@ -109,7 +109,7 @@ These are real future work items, but remain disabled or prohibited during the c
 - [ ] Give each node an OS-enforced private workspace and cache; shared writable `experiments/` access is not a sufficient tenant boundary.
 - [x] Make the default model configuration explicit at invocation time so a missing model cannot trigger an unexpected paid request.
 - [x] Document a supported Windows test command; Linux remains authoritative for the execution sandbox.
-- [ ] Decide whether the prepared repository `data/` cache should later be deliberately copied/promoted to the external cache; never promote it automatically.
+- [x] Decide to keep the prepared repository `data/` cache separate from the external cache; no automatic promotion.
 
 ## Deferred opt-in LLM trace dataset
 
