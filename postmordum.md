@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-24
 - **Repository:** `F:\UserData\git-repos\nanochat - Copy`
-- **Integration status:** Implemented; code hardening and live one-node validation complete for OpenCode and OpenRouter; multi-stage/multi-seed expansion pending
+- **Integration status:** Implemented; code hardening, live one-node validation, and fixed-context multi-stage resume proof complete; dynamic/multi-seed expansion pending
 - **Open-work tracker:** `plan.md` remaining-work checklist
 
 ## Executive summary
@@ -110,13 +110,13 @@ The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux c
 
 ## Verification evidence
 
-The following table records the verified baseline plus the completed regression and live one-node runs. The unresolved items are security/architecture and multi-stage expansion, not known test regressions:
+The following table records the verified baseline plus the completed regression, live one-node runs, and fixed-context multi-stage proof. The unresolved items are security/architecture and explicitly gated expansion, not known test regressions:
 
 | Check | Result |
 | --- | --- |
-| AI Scientist provider, contract, workspace, and curriculum tests | 57 passed |
+| AI Scientist provider, contract, workspace, and curriculum tests | 72 passed |
 | Host nanochat suite excluding Unix-only execution sandbox | 43 passed, 12 skipped |
-| Complete Linux-container suite | 96 passed, 10 skipped |
+| Complete Linux-container suite | 125 passed, 10 skipped |
 | Optimizer tests in Linux container | 4 passed |
 | Python compilation checks | Passed after final edits |
 | Black checks for integration files | Passed after final edits |
@@ -131,7 +131,7 @@ The following table records the verified baseline plus the completed regression 
 | Offline AgentManager stage inheritance | Passed across main stages 1–4; accepted source marker propagated, one result archived, no provider calls or extra executed nodes |
 | Versioned loader snapshot tests | Passed; first-row-group, cursor/buffer, pending-batch, source-order, epoch, and fail-closed state checks |
 | Rank-local checkpoint tests | Passed; rank 0/1 state separation, metadata derivation, missing-file failure, and legacy save/load compatibility |
-| Training-script rank-local wiring | Compile/full-suite verified; both standard and curriculum trainers load rank-local state and save it explicitly; no real checkpoint/resume equivalence run yet |
+| Training-script rank-local wiring | Compile/full-suite verified; both standard and curriculum trainers load rank-local state and save it explicitly; real one-/two-stage resume probes pass |
 | Offline checkpoint-boundary round trip | Passed; rank-local serialization followed by loader restore reproduced the uninterrupted batch stream |
 | Stage-transition contract tests | Passed; JSON round-trip, malformed/mismatched state rejection, boundary validation, and composition-counter preservation |
 | Fail-closed stage-transition guard | Passed; transitions with an explicit pending batch or missing pending state are rejected |
