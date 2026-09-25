@@ -22,6 +22,11 @@ Completed the approved one-node AI Scientist gates: a real three-stage descendan
 - OpenRouter preflight passed with structured tool output; the accepted run used 10-call/100,000-input/50,000-output caps and explicit missing-usage opt-in.
 - Raw experiment artifacts were removed after compact evidence capture; `experiments/` retains only `.gitkeep`.
 
+### Documentation refresh
+
+- `README.md` now documents the persisted one-node preflight/run-status workflow, the three-invocation lineage handoff, sequential seed confirmation, and the tracked evidence files.
+- `plan.md`, `postmordum.md`, and this changelog now identify item 5 (security boundary and human-only promotion) as the remaining open gate.
+
 ### Safety
 
 Promotion, dynamic context, multi-node search, and the controller/generated privilege boundary remain gated. The AI Scientist component remains under its separate upstream license; see `LICENSE`, `licenses/NANOCHAT_LICENSE`, and `licenses/AI_SCIENTIST_LICENSE`.

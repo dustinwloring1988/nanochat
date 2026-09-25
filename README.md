@@ -105,7 +105,53 @@ bash runs/ai_scientist_smoke.sh
 
 Provider calls are disabled by default; use `--allow-provider-calls` only when you intend to spend provider quota. The shared cache must already contain the tokenizer, both required ClimbMix layouts, and the evaluation bundle. Experiment artifacts are written under `experiments/`. Generated code executes with an allowlisted environment and can write only to its isolated node workspace.
 
-The default OpenCode model is `opencode/space-bunny-free`. The OpenRouter free model can be selected with `--model openrouter/stealth/space-bunny-alpha`; because that endpoint omits usage metadata, opt in explicitly with `AI_SCIENTIST_ALLOW_MISSING_USAGE=1` when running it.
+The default OpenCode model is `opencode/space-bunny-free`. The OpenRouter free model can be selected with `--model openrouter/stealth/space-bunny-alpha`; because that endpoint omits usage metadata, opt in explicitly with `AI_SCIENTIST_ALLOW_MISSING_USAGE=1` when running it. The accepted bounded lineage and seed evidence in this repository used `openrouter/qwen/qwen3-coder-flash`.
+
+### Bounded verification workflows
+
+The approved one-node gates keep `max_nodes=1` and persist `preflight.json`, `run_status.json`, result provenance, and controller attestations. A bounded OpenRouter preflight can be run with:
+
+```bash
+AI_SCIENTIST_MAX_API_CALLS=10 \
+AI_SCIENTIST_MAX_INPUT_TOKENS=100000 \
+AI_SCIENTIST_MAX_OUTPUT_TOKENS=50000 \
+AI_SCIENTIST_ALLOW_MISSING_USAGE=1 \
+docker compose --profile ai-scientist run --rm ai-scientist \
+  python launch_scientist_bfts.py --preflight \
+  --model openrouter/qwen/qwen3-coder-flash
+```
+
+Run a root node, then two sequential children. Each child receives a verified parent journal and still executes only one node:
+
+```bash
+docker compose --profile ai-scientist run --rm ai-scientist \
+  python launch_scientist_bfts.py --load-code --max-nodes 1 \
+  --allow-provider-calls --model openrouter/qwen/qwen3-coder-flash
+
+# Stage 2: use the root journal and accepted root node ID.
+docker compose --profile ai-scientist run --rm ai-scientist \
+  python launch_scientist_bfts.py --load-code --max-nodes 1 \
+  --allow-provider-calls --model openrouter/qwen/qwen3-coder-flash \
+  --parent-journal <root-journal.json> --parent-node-id <root-node-id> \
+  --parent-stage 1 --lineage-id root-to-stage2
+
+# Stage 3: use the accepted stage-2 journal and node ID.
+docker compose --profile ai-scientist run --rm ai-scientist \
+  python launch_scientist_bfts.py --load-code --max-nodes 1 \
+  --allow-provider-calls --model openrouter/qwen/qwen3-coder-flash \
+  --parent-journal <stage2-journal.json> --parent-node-id <stage2-node-id> \
+  --parent-stage 2 --lineage-id stage2-to-stage3
+```
+
+Sequential seed confirmation is controller-owned and writes a pass/fail manifest:
+
+```bash
+docker compose --profile ai-scientist run --rm ai-scientist \
+  python scripts/seed_confirmation.py \
+  --output-dir /workspace/project/experiments/seed-confirmation-YYYYMMDD
+```
+
+The compact evidence files are tracked under `evidence/`: `ai-scientist-lineage-20260925.json`, `ai-scientist-seed-confirmation-20260925.json`, and `ai-scientist-baseline-openrouter-20260925.json`. Raw experiment directories are removed after compact evidence capture; `experiments/` retains only `.gitkeep`. Dynamic context, multi-node search, and human-only promotion remain gated. See `plan.md` for the remaining security-boundary work.
 
 The Unix execution sandbox uses the standard-library `resource` module and is not available on native Windows. Run the supported Windows host subset with:
 
