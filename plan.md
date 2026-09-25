@@ -108,7 +108,7 @@ These are real future work items, but remain disabled or prohibited during the c
 - [ ] Move from the current same-container controller/worker arrangement to a separate controller and experiment-execution service or privilege domain.
 - [ ] Give each node an OS-enforced private workspace and cache; shared writable `experiments/` access is not a sufficient tenant boundary.
 - [x] Make the default model configuration explicit at invocation time so a missing model cannot trigger an unexpected paid request.
-- [ ] Resolve the Windows `resource` test limitation or document a supported Windows test command; Linux remains authoritative for the sandbox.
+- [x] Document a supported Windows test command; Linux remains authoritative for the execution sandbox.
 - [ ] Decide whether the prepared repository `data/` cache should later be deliberately copied/promoted to the external cache; never promote it automatically.
 
 ## Deferred opt-in LLM trace dataset

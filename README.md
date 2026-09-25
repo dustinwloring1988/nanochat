@@ -95,6 +95,18 @@ Provider calls are disabled by default; use `--allow-provider-calls` only when y
 
 The default OpenCode model is `opencode/space-bunny-free`. The OpenRouter free model can be selected with `--model openrouter/stealth/space-bunny-alpha`; because that endpoint omits usage metadata, opt in explicitly with `AI_SCIENTIST_ALLOW_MISSING_USAGE=1` when running it.
 
+The Unix execution sandbox uses the standard-library `resource` module and is not available on native Windows. Run the supported Windows host subset with:
+
+```bash
+python -m pytest -q --ignore=tests/test_execution.py
+```
+
+The authoritative full suite, including execution-sandbox tests, is the Linux container:
+
+```bash
+docker compose --profile ai-scientist run --rm ai-scientist python -m pytest -q -rs
+```
+
 ## Time-to-GPT-2 Leaderboard
 
 Presently, the main focus of development is on tuning the pretraining stage, which takes the most amount of compute. Inspired by the modded-nanogpt repo and to incentivise progress and community collaboration, nanochat maintains a leaderboard for a "GPT-2 speedrun", which is the wall-clock time required to train a nanochat model to GPT-2 grade capability, as measured by the DCLM CORE score. The [runs/speedrun.sh](runs/speedrun.sh) script always reflects the reference way to train GPT-2 grade model and talk to it. The current leaderboard looks as follows:

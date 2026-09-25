@@ -136,6 +136,7 @@ The following table records the verified baseline plus the completed regression 
 | Fail-closed stage-transition guard | Passed; transitions with an explicit pending batch or missing pending state are rejected |
 | Real one-stage GPU resume probe | Passed; isolated float32 reference/resume, model delta 0, optimizer delta 7.28e-12, exact loader state, BPB 2.2683011088, matching curve steps/losses |
 | Real two-stage negative control | Expected fail-closed result; transition stopped with pending-batch guard before loader reset |
+| Windows host test command | Documented `python -m pytest -q --ignore=tests/test_execution.py`; Linux container remains authoritative for the full suite |
 | OpenCode live preflight | Passed; catalog-listed, tool calls supported, structured output passed |
 | OpenCode live one-node BFTS | Passed; BPB 1.491380, controller-accepted result and attestation |
 | OpenRouter live preflight | Passed; JSON structured mode, three preflight attempts, no tool-call support reported |
@@ -183,7 +184,7 @@ The original `runs/ai_scientist_smoke.sh` invoked a profile capable of running m
 | Candidate source inheritance | Archive/reuse is implemented and unit-tested after the review found silent reversion to root | Run a full multi-stage BFTS descendant test before treating stage results as cumulative |
 | Same-container execution boundary | Removing the repository bind and allowlisting the environment blocks accidental access but not same-UID inspection or sibling writes | Separate controller and generated execution into distinct services or privilege domains |
 | Improved but non-exact sampler resume | Versioned contracts reject incompatible model/data/curriculum settings; loader snapshots, rank-local files, both training scripts, an offline checkpoint round trip, a stage-transition contract, a fail-closed guard, and an isolated one-stage GPU resume probe preserve/load state, but successful multi-stage training is not enabled | Add successful multi-stage resume/composition tests before enabling research comparisons |
-| Linux-container test authority | Native Windows lacks Unix sandbox modules | Add a documented Windows-compatible test command or sandbox later |
+| Linux-container test authority | Native Windows lacks Unix sandbox modules | Use `python -m pytest -q --ignore=tests/test_execution.py` on Windows; keep the Linux container authoritative for the full suite |
 | Live API path | OpenCode and OpenRouter one-node live paths pass; OpenRouter requires explicit missing-usage opt-in because its free endpoint omits token metadata | Keep credentials local, rerun preflight before live work, and do not weaken default fail-closed budgets |
 | Provider hardening verification | Offline retry, budget, multimodal, role-routing, trace-privacy, and live OpenCode/OpenRouter one-node checks pass | Keep live preflight and bounded one-node runs as the acceptance gate |
 | External cache separation | The pilot data was placed in ignored repository `data/` rather than the user's external cache | Decide whether to promote the prepared data deliberately; never copy it into the trusted cache automatically |
