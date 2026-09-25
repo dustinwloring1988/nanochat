@@ -2,7 +2,7 @@
 
 - **Status:** Final handoff: one-node pilot complete; future work remains explicitly gated
 - **Date:** 2026-09-24
-- **Last verified commit:** `1c13d3d` (`document windows test workflow`)
+- **Last verified commit:** `50969cf` (`record cache separation decision`)
 - **Target:** RTX 4060 Ti, 16 GB VRAM
 - **Upstream pin:** `96bd51617cfdbb494a9fc283af00fe090edfae48`
 - **Pilot cache:** ignored repository `data/`
@@ -129,4 +129,4 @@ This is future work, not part of the current pilot:
 
 ## Completion gate
 
-The current one-node integration is complete and verified. It is **not promotion-ready**: multi-node/multi-seed confirmation, a predeclared statistical threshold, exact buffered resume, and a separate privilege domain remain required before expanding the research boundary. The final diff was committed as `1c13d3d`; any later promotion, patch application, checkpoint promotion, or push remains a separate explicit human-approved action.
+The current one-node integration is complete and verified. It is **not promotion-ready**: multi-node/multi-seed confirmation, a predeclared statistical threshold, exact buffered resume, and a separate privilege domain remain required before expanding the research boundary. The final diff was committed as `50969cf`; any later promotion, patch application, checkpoint promotion, or push remains a separate explicit human-approved action.
