@@ -1,12 +1,20 @@
 .venv/
+.venv-ai-scientist/
 __pycache__/
 *.pyc
 dev-ignore/
 report.md
 eval_bundle/
+data/
+checkpoints/
+experiments/*
+!experiments/.gitkeep
+ai_scientist_logs/
+ai_scientist_workspaces/
 
 # Secrets
-.env
+.env*
+!.env.example
 
 # Local setup
 CLAUDE.md

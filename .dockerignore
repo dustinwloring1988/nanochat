@@ -44,7 +44,13 @@ htmlcov/
 .pytest_cache/
 
 # Environment
-.env
+.env*
+!.env.example
 .venv/
+.venv-ai-scientist/
 venv/
 ENV/
+
+experiments/
+ai_scientist_logs/
+ai_scientist_workspaces/

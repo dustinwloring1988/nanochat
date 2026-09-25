@@ -15,7 +15,7 @@ echo ""
 echo "Configuration:"
 echo "  GPU: Single RTX 4060Ti (16GB VRAM)"
 echo "  Model: depth=6 (small test model)"
-echo "  Curriculum: 4 stages with context 2K→16K"
+echo "  Curriculum: 4 stages with fixed 2K context"
 echo "  Purpose: Fast iteration testing"
 echo ""
 
@@ -57,6 +57,21 @@ echo ""
 # For depth=6, we use more data (doubled from original)
 python -m nanochat.data_registry --download climbmix -n 40 -w 4
 
+python -c "
+from nanochat.data_registry import get_source
+from nanochat.tokenizer_corpus import _download_huggingface_dataset
+for name, samples in [
+    ('nemotron_v1', 10000),
+    ('nemotron_v1_1', 5000),
+    ('nemotron_v1_2', 5000),
+    ('code_reasoning', 5000),
+    ('knowledge_pile', 10000),
+]:
+    source = get_source(name)
+    print(f'Downloading {name}: {source.subsets}')
+    _download_huggingface_dataset(source, num_samples_per_subset=samples)
+"
+
 echo ""
 echo "Dataset download complete!"
 echo ""
@@ -70,10 +85,10 @@ echo "Curriculum Pretraining (depth=6)"
 echo "=========================================="
 echo ""
 echo "Training with 4-stage curriculum:"
-echo "  Stage 1: Foundation (2K→4K context)"
-echo "  Stage 2: Reasoning+Code (4K→8K context)"
-echo "  Stage 3: Long Context (8K→16K context)"
-echo "  Stage 4: Consolidation (16K context)"
+echo "  Stage 1: Foundation (2K context)"
+echo "  Stage 2: Reasoning+Code (2K context)"
+echo "  Stage 3: Specialized (2K context)"
+echo "  Stage 4: Consolidation (2K context)"
 echo ""
 
 # Training hyperparameters optimized for 4060Ti (16GB VRAM)

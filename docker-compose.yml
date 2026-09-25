@@ -5,49 +5,84 @@ services:
       dockerfile: Dockerfile
     image: nanochat:latest
     container_name: nanochat-train
-    
-    # GPU configuration
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: all  # Use all available GPUs, or set to 1 for single GPU
+              count: all
               capabilities: [gpu]
-    
-    # Volume mounts
     volumes:
-      - ./data:/workspace/data                    # Data cache (persistent)
-      - ./checkpoints:/workspace/checkpoints      # Model checkpoints (persistent)
-      - ./runs:/workspace/runs                    # Run scripts
-      - ./config:/workspace/config                # Configuration files
-      - ./nanochat:/workspace/nanochat            # Source code
-      - ./scripts:/workspace/scripts              # Scripts
-      - ./tasks:/workspace/tasks                  # Tasks
-      - ./docker:/workspace/docker                # Docker entry scripts
-    
-    # Environment variables
+      - ./data:/workspace/data
+      - ./runs:/workspace/runs
+      - ./config:/workspace/config
+      - ./nanochat:/workspace/nanochat
+      - ./scripts:/workspace/scripts
+      - ./tasks:/workspace/tasks
+      - ./docker:/workspace/docker
     environment:
       - NANOCHAT_BASE_DIR=/workspace/data
-      - CUDA_VISIBLE_DEVICES=0                    # Single GPU (4060Ti)
+      - CUDA_VISIBLE_DEVICES=0
       - OMP_NUM_THREADS=1
-      - WANDB_API_KEY=${WANDB_API_KEY:-}          # Optional: set in .env file
-    
-    # Shared memory for DataLoader workers
-    shm_size: '8gb'
-    
-    # Keep container running
+      - WANDB_API_KEY=${WANDB_API_KEY:-}
+    shm_size: 8gb
     stdin_open: true
     tty: true
-    
-    # Working directory
     working_dir: /workspace
-    
-    # Command: default to bash, override with docker-compose run commands
     command: /bin/bash
 
-  # Alternative: Run training directly on container start
   nanochat-train-auto:
     extends: nanochat-train
     container_name: nanochat-train-auto
     command: bash /workspace/docker/init_training.sh
+
+  ai-scientist:
+    profiles: [ai-scientist]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ai-scientist
+    image: nanochat-ai-scientist:latest
+    container_name: nanochat-ai-scientist
+    user: "1000:1000"
+    read_only: true
+    init: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    volumes:
+      - ${NANOCHAT_CACHE_DIR:-./data}:/nanochat-cache:ro
+      - ./experiments:/workspace/project/experiments
+    tmpfs:
+      - /tmp:rw,exec,nosuid,size=8g
+    environment:
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-}
+      OPENROUTER_APP_TITLE: ${OPENROUTER_APP_TITLE:-nanochat-ai-scientist}
+      AI_SCIENTIST_API_MODE: ${AI_SCIENTIST_API_MODE:-}
+      AI_SCIENTIST_RUN_ID: ${AI_SCIENTIST_RUN_ID:-}
+      NANOCHAT_SHARED_CACHE: /nanochat-cache
+      NANOCHAT_SOURCE_ROOT: /workspace/project
+      NANOCHAT_PYTHON: /opt/ai-scientist/bin/python
+      AI_SCIENTIST_EXPERIMENT_DIR: /workspace/project/experiments
+      AI_SCIENTIST_MAX_API_CALLS: ${AI_SCIENTIST_MAX_API_CALLS:-100}
+      AI_SCIENTIST_MAX_INPUT_TOKENS: ${AI_SCIENTIST_MAX_INPUT_TOKENS:-}
+      AI_SCIENTIST_MAX_OUTPUT_TOKENS: ${AI_SCIENTIST_MAX_OUTPUT_TOKENS:-2000000}
+      AI_SCIENTIST_ALLOW_MISSING_USAGE: ${AI_SCIENTIST_ALLOW_MISSING_USAGE:-0}
+      WANDB_MODE: disabled
+      XDG_CACHE_HOME: /tmp/.cache
+      TRITON_CACHE_DIR: /tmp/triton
+      TORCHINDUCTOR_CACHE_DIR: /tmp/torchinductor
+      OMP_NUM_THREADS: 1
+      CUDA_VISIBLE_DEVICES: 0
+    working_dir: /workspace/project
+    command: ["python", "launch_scientist_bfts.py", "--load-code"]
+    shm_size: 8gb
+    pids_limit: 512
+    mem_limit: 24g
+    stop_grace_period: 30s

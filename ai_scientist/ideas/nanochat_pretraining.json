@@ -1,0 +1,21 @@
+[
+  {
+    "Name": "nanochat_fixed_token_pretraining",
+    "Title": "Improving nanochat Pretraining at a Fixed Token Budget",
+    "Short Hypothesis": "A principled combination of optimizer schedule, curriculum data mixture, and model-level changes can reduce held-out validation bits per byte for the depth-6 nanochat baseline without exceeding the RTX 4060 Ti memory or execution budget.",
+    "Related Work": "The project builds on nanochat's existing MuonAdamW optimizer, ClimbMix corpus, curriculum scheduler, and wall-clock leaderboard methodology. It excludes previously rejected MoE, DyT, SwiGLU, and related negative results recorded in dev/LOG.md unless the new experiment provides a materially different mechanism.",
+    "Abstract": "This project searches for reproducible improvements to nanochat's small-model pretraining pipeline. Every candidate uses the same tokenizer, held-out ClimbMix split, seed, total token budget, and canonical results contract. The primary objective is lower validation bits per byte. Throughput, runtime, CORE, and peak memory are treated as guardrails. Candidate source changes execute only inside isolated workspace snapshots, and winning changes are exported as patches for human review rather than merged automatically.",
+    "Experiments": [
+      "Reproduce the fixed-context depth-6 baseline and record validation BPB, CORE, runtime, throughput, and peak VRAM.",
+      "Tune optimizer learning rates, weight decay, warmup, warmdown, total batch size, and fixed-context curriculum mixture.",
+      "Explore model or training-method changes only when they preserve the fixed token and memory budgets.",
+      "Ablate the strongest accepted change and confirm finalists using seeds 42, 43, and 44."
+    ],
+    "Risk Factors and Limitations": [
+      "Short depth-6 runs may not transfer to GPT-2-scale models.",
+      "Validation BPB can improve while downstream capability remains unchanged.",
+      "Free hosted models may be rate-limited or temporarily unavailable.",
+      "Curriculum results can be confounded if tokenizer or held-out data changes."
+    ]
+  }
+]

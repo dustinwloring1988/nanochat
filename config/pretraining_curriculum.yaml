@@ -1,25 +1,16 @@
 # NanoChat Pretraining Curriculum
 #
 # This file defines the staged curriculum for pretraining with multi-source data mixing.
-# The curriculum consists of 4 stages with varying data distributions and context lengths.
+# All stages currently use a fixed 2K context; dynamic context scheduling is disabled
+# until the dataloader, effective batch, compiled shapes, and resume state are validated.
 #
-# Design principles (from the model's recommendations):
-# - Stage 1: Foundation - broad mixture to establish general capabilities
-# - Stage 2: Reasoning + Code - increase specialized data for target capabilities  
-# - Stage 3: Long-context - extend context window for complex reasoning
-# - Stage 4: Consolidation - return to broad mixture to integrate knowledge
-#
-# Context length scheduling:
-# - Gradual ramps within stages for training stability
-# - Progressive extension: 2K→4K→8K→16K
-# - Final stage at 16K (can optionally extend to 32K for <5% of training)
-#
-# Token ratios based on recommended curriculum design.
+# The source distributions change at stage boundaries. The ratios describe the
+# intended document-sampling mixture, not a measured token share.
 
 stages:
   - name: "foundation"
     token_ratio: 0.55  # 55% of total training tokens
-    context_range: [2048, 4096]  # Gradually ramp from 2K to 4K
+    context_range: [2048, 2048]  # Fixed 2K until dynamic context scheduling is validated
     description: "Establish broad language understanding and general capabilities"
     
     # Source-level mixing weights
@@ -55,7 +46,7 @@ stages:
   
   - name: "reasoning_and_code"
     token_ratio: 0.28  # 28% of total training tokens
-    context_range: [4096, 8192]  # Ramp from 4K to 8K
+    context_range: [2048, 2048]  # Fixed 2K
     description: "Focus on reasoning, mathematics, code, and algorithmic thinking"
     
     source_weights:
@@ -89,7 +80,7 @@ stages:
   
   - name: "long_context"
     token_ratio: 0.12  # 12% of total training tokens
-    context_range: [8192, 16384]  # Ramp from 8K to 16K
+    context_range: [2048, 2048]  # Fixed 2K
     description: "Extended context for complex reasoning and long-form content"
     
     source_weights:
@@ -123,7 +114,7 @@ stages:
   
   - name: "consolidation"
     token_ratio: 0.05  # 5% of total training tokens
-    context_range: [16384, 16384]  # Fixed at 16K
+    context_range: [2048, 2048]  # Fixed 2K
     description: "Integrate specialized knowledge back into general distribution"
     
     source_weights:
@@ -157,8 +148,8 @@ stages:
 
 # Notes:
 # - Total token_ratio sums to 1.00 (55% + 28% + 12% + 5%)
-# - Context gradually extends from 2K → 16K
+# - Context remains fixed at 2K across all stages
 # - Source weights sum to 1.0 within each stage
 # - Subset weights sum to 1.0 for each source
-# - Stage transitions are smooth (no abrupt changes between stages)
+# - Stage transitions change source weights abruptly at stage boundaries
 # - The curriculum follows: broad → specialized → very specialized → broad again

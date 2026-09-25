@@ -1,7 +1,7 @@
 # NanoChat Curriculum Training - Docker Image
 # Base: PyTorch 2.9.1 with CUDA 12.8 support
 
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
+FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel
 
 # Set working directory
 WORKDIR /workspace

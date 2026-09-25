@@ -1,0 +1,33 @@
+FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl git && rm -rf /var/lib/apt/lists/*
+RUN python -m pip install --no-cache-dir uv
+
+WORKDIR /workspace/project
+COPY requirements-ai-scientist.txt /tmp/requirements-ai-scientist.txt
+RUN uv venv --python "$(command -v python)" --system-site-packages /opt/ai-scientist && \
+    uv pip install --python /opt/ai-scientist/bin/python -r /tmp/requirements-ai-scientist.txt
+
+RUN useradd --create-home --uid 1000 ai-scientist
+COPY --chown=ai-scientist:ai-scientist . /workspace/project
+RUN mkdir -p /workspace/project/experiments /tmp/matplotlib /tmp/huggingface && \
+    chown -R ai-scientist:ai-scientist /workspace/project/experiments /tmp/matplotlib /tmp/huggingface
+
+ENV PATH="/opt/ai-scientist/bin:${PATH}"
+ENV PYTHONPATH="/workspace/project"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV MPLCONFIGDIR=/tmp/matplotlib
+ENV HF_HOME=/tmp/huggingface
+ENV XDG_CACHE_HOME=/tmp/.cache
+ENV TRITON_CACHE_DIR=/tmp/triton
+ENV TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor
+ENV WANDB_MODE=disabled
+ENV TOKENIZERS_PARALLELISM=false
+ENV NANOCHAT_SOURCE_ROOT=/workspace/project
+ENV NANOCHAT_PYTHON=/opt/ai-scientist/bin/python
+ENV AI_SCIENTIST_EXPERIMENT_DIR=/workspace/project/experiments
+
+USER ai-scientist
+WORKDIR /workspace/project
+CMD ["python", "launch_scientist_bfts.py", "--load-code"]

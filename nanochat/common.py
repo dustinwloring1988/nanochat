@@ -3,9 +3,11 @@ Common utilities for nanochat.
 """
 
 import os
+import random
 import re
 import logging
 import urllib.request
+import numpy as np
 import torch
 import torch.distributed as dist
 from filelock import FileLock
@@ -171,7 +173,15 @@ def autodetect_device_type():
     print0(f"Autodetected device type: {device_type}")
     return device_type
 
-def compute_init(device_type="cuda"): # cuda|cpu|mps
+def seed_everything(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+
+
+def compute_init(device_type="cuda", seed=42): # cuda|cpu|mps
     """Basic initialization that we keep doing over and over, so make common."""
 
     assert device_type in ["cuda", "mps", "cpu"], "Invalid device type atm"
@@ -180,14 +190,7 @@ def compute_init(device_type="cuda"): # cuda|cpu|mps
     if device_type == "mps":
         assert torch.backends.mps.is_available(), "Your PyTorch installation is not configured for MPS but device_type is 'mps'"
 
-    # Reproducibility
-    # Note that we set the global seeds here, but most of the code uses explicit rng objects.
-    # The only place where global rng might be used is nn.Module initialization of the model weights.
-    torch.manual_seed(42)
-    if device_type == "cuda":
-        torch.cuda.manual_seed(42)
-    # skipping full reproducibility for now, possibly investigate slowdown later
-    # torch.use_deterministic_algorithms(True)
+    seed_everything(seed)
 
     # Precision
     if device_type == "cuda":
@@ -275,7 +278,7 @@ def get_peak_flops(device_name: str) -> float:
         return 512 * max_comp_units * 1300 * 10**6
 
     # Unknown GPU - return inf so MFU shows as 0% rather than a wrong guess
-    logger.warning(f"Peak flops undefined for: {device_name}, MFU will show as 0%")
+        logger.warning(f"Peak flops undefined for: {device_name}, MFU is unavailable")
     return float('inf')
 
 def get_peak_bandwidth(device_name: str) -> float:

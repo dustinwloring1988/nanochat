@@ -9,7 +9,7 @@ This extends base_train.py with curriculum support:
 
 Run as:
     python -m scripts.base_train_curriculum --config config/pretraining_curriculum.yaml
-    
+
 Or distributed:
     torchrun --nproc_per_node=8 -m scripts.base_train_curriculum --config config/pretraining_curriculum.yaml
 
@@ -18,6 +18,7 @@ For simple testing without curriculum (falls back to original behavior):
 """
 
 import os
+
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import gc
 import json
@@ -33,62 +34,226 @@ import torch
 import torch.distributed as dist
 
 from nanochat.gpt import GPT, GPTConfig, Linear
-from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit
-from nanochat.multi_source_dataloader import tokenizing_distributed_data_loader_multi_source
+from nanochat.dataloader import (
+    tokenizing_distributed_data_loader_bos_bestfit,
+    tokenizing_distributed_data_loader_with_state_bos_bestfit,
+)
+from nanochat.multi_source_dataloader import (
+    tokenizing_distributed_data_loader_multi_source,
+)
 from nanochat.curriculum import CurriculumStage, CurriculumScheduler
-from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized
+from nanochat.common import (
+    compute_init,
+    compute_cleanup,
+    print0,
+    DummyWandb,
+    print_banner,
+    get_base_dir,
+    autodetect_device_type,
+    get_peak_flops,
+    COMPUTE_DTYPE,
+    COMPUTE_DTYPE_REASON,
+    is_ddp_initialized,
+)
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
 from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
 from nanochat.loss_eval import evaluate_bpb
+from nanochat.research_results import (
+    build_resume_contract,
+    build_stage_composition,
+    build_training_results,
+    dataset_manifest_hash,
+    tokenizer_hash,
+    validate_resume_contract,
+    write_json_atomic,
+)
 from nanochat.engine import Engine
 from nanochat.flash_attention import HAS_FA3
 from scripts.base_eval import evaluate_core
+
 print_banner()
 
 # -----------------------------------------------------------------------------
 # CLI arguments
 parser = argparse.ArgumentParser(description="Pretrain base model with curriculum")
 # Curriculum config
-parser.add_argument("--config", type=str, default=None, help="Path to curriculum YAML config (enables curriculum mode)")
-parser.add_argument("--curriculum-mode", action="store_true", help="Enable curriculum mode even without config (uses defaults)")
+parser.add_argument(
+    "--config",
+    type=str,
+    default=None,
+    help="Path to curriculum YAML config (enables curriculum mode)",
+)
+parser.add_argument(
+    "--curriculum-mode",
+    action="store_true",
+    help="Enable curriculum mode even without config (uses defaults)",
+)
 # Logging
-parser.add_argument("--run", type=str, default="dummy", help="wandb run name ('dummy' disables wandb logging)")
+parser.add_argument(
+    "--run",
+    type=str,
+    default="dummy",
+    help="wandb run name ('dummy' disables wandb logging)",
+)
 # Runtime
-parser.add_argument("--device-type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)")
+parser.add_argument(
+    "--device-type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)"
+)
+parser.add_argument("--seed", type=int, default=42, help="random seed")
+parser.add_argument(
+    "--results-json", type=str, default=None, help="write canonical training results"
+)
 # FP8 training
-parser.add_argument("--fp8", action="store_true", help="enable FP8 training (requires H100+ GPU)")
-parser.add_argument("--fp8-recipe", type=str, default="tensorwise", choices=["rowwise", "tensorwise"], help="FP8 scaling recipe")
+parser.add_argument(
+    "--fp8", action="store_true", help="enable FP8 training (requires H100+ GPU)"
+)
+parser.add_argument(
+    "--fp8-recipe",
+    type=str,
+    default="tensorwise",
+    choices=["rowwise", "tensorwise"],
+    help="FP8 scaling recipe",
+)
 # Model architecture
-parser.add_argument("--depth", type=int, default=20, help="depth of the Transformer model")
-parser.add_argument("--aspect-ratio", type=int, default=64, help="model_dim = depth * aspect_ratio")
-parser.add_argument("--head-dim", type=int, default=128, help="target head dimension for attention")
-parser.add_argument("--max-seq-len", type=int, default=2048, help="max context length (overridden by curriculum if enabled)")
-parser.add_argument("--window-pattern", type=str, default="SSSL", help="sliding window pattern tiled across layers")
+parser.add_argument(
+    "--depth", type=int, default=20, help="depth of the Transformer model"
+)
+parser.add_argument(
+    "--aspect-ratio", type=int, default=64, help="model_dim = depth * aspect_ratio"
+)
+parser.add_argument(
+    "--head-dim", type=int, default=128, help="target head dimension for attention"
+)
+parser.add_argument(
+    "--max-seq-len",
+    type=int,
+    default=2048,
+    help="max context length (overridden by curriculum if enabled)",
+)
+parser.add_argument(
+    "--window-pattern",
+    type=str,
+    default="SSSL",
+    help="sliding window pattern tiled across layers",
+)
 # Training horizon
-parser.add_argument("--num-iterations", type=int, default=-1, help="explicit number of optimization steps (-1 = disable)")
-parser.add_argument("--target-flops", type=float, default=-1.0, help="calculate num_iterations to reach target_flops (-1 = disable)")
-parser.add_argument("--target-param-data-ratio", type=float, default=12, help="calculate num_iterations to maintain data:param ratio")
+parser.add_argument(
+    "--num-iterations",
+    type=int,
+    default=-1,
+    help="explicit number of optimization steps (-1 = disable)",
+)
+parser.add_argument(
+    "--target-flops",
+    type=float,
+    default=-1.0,
+    help="calculate num_iterations to reach target_flops (-1 = disable)",
+)
+parser.add_argument(
+    "--target-param-data-ratio",
+    type=float,
+    default=12,
+    help="calculate num_iterations to maintain data:param ratio",
+)
 # Optimization
-parser.add_argument("--device-batch-size", type=int, default=32, help="per-device batch size")
-parser.add_argument("--total-batch-size", type=int, default=-1, help="total batch size in tokens (-1 = auto-compute)")
-parser.add_argument("--embedding-lr", type=float, default=0.3, help="learning rate for embedding parameters")
-parser.add_argument("--unembedding-lr", type=float, default=0.008, help="learning rate for unembedding parameters")
-parser.add_argument("--weight-decay", type=float, default=0.28, help="weight decay for Muon optimizer")
-parser.add_argument("--matrix-lr", type=float, default=0.02, help="learning rate for matrix parameters (Muon)")
-parser.add_argument("--scalar-lr", type=float, default=0.5, help="learning rate for scalars")
-parser.add_argument("--warmup-steps", type=int, default=40, help="number of steps for LR warmup")
-parser.add_argument("--warmdown-ratio", type=float, default=0.65, help="ratio of iterations for LR warmdown")
-parser.add_argument("--final-lr-frac", type=float, default=0.05, help="final LR as fraction of initial LR")
-parser.add_argument("--resume-from-step", type=int, default=-1, help="resume training from this step (-1 = disable)")
+parser.add_argument(
+    "--device-batch-size", type=int, default=32, help="per-device batch size"
+)
+parser.add_argument(
+    "--total-batch-size",
+    type=int,
+    default=-1,
+    help="total batch size in tokens (-1 = auto-compute)",
+)
+parser.add_argument(
+    "--embedding-lr",
+    type=float,
+    default=0.3,
+    help="learning rate for embedding parameters",
+)
+parser.add_argument(
+    "--unembedding-lr",
+    type=float,
+    default=0.008,
+    help="learning rate for unembedding parameters",
+)
+parser.add_argument(
+    "--weight-decay", type=float, default=0.28, help="weight decay for Muon optimizer"
+)
+parser.add_argument(
+    "--matrix-lr",
+    type=float,
+    default=0.02,
+    help="learning rate for matrix parameters (Muon)",
+)
+parser.add_argument(
+    "--scalar-lr", type=float, default=0.5, help="learning rate for scalars"
+)
+parser.add_argument(
+    "--warmup-steps", type=int, default=40, help="number of steps for LR warmup"
+)
+parser.add_argument(
+    "--warmdown-ratio",
+    type=float,
+    default=0.65,
+    help="ratio of iterations for LR warmdown",
+)
+parser.add_argument(
+    "--final-lr-frac",
+    type=float,
+    default=0.05,
+    help="final LR as fraction of initial LR",
+)
+parser.add_argument(
+    "--resume-from-step",
+    type=int,
+    default=-1,
+    help="resume training from this step (-1 = disable)",
+)
 # Evaluation
-parser.add_argument("--eval-every", type=int, default=250, help="evaluate val bpb every N steps (-1 = disable)")
-parser.add_argument("--eval-tokens", type=int, default=80*524288, help="number of tokens to evaluate val loss on")
-parser.add_argument("--core-metric-every", type=int, default=2000, help="evaluate CORE metric every N steps (-1 = disable)")
-parser.add_argument("--core-metric-max-per-task", type=int, default=500, help="examples per task for CORE metric")
-parser.add_argument("--sample-every", type=int, default=2000, help="sample from model every N steps (-1 = disable)")
-parser.add_argument("--save-every", type=int, default=-1, help="save checkpoints every N steps (-1 = only at end)")
+parser.add_argument(
+    "--eval-every",
+    type=int,
+    default=250,
+    help="evaluate val bpb every N steps (-1 = disable)",
+)
+parser.add_argument(
+    "--eval-tokens",
+    type=int,
+    default=80 * 524288,
+    help="number of tokens to evaluate val loss on",
+)
+parser.add_argument(
+    "--core-metric-every",
+    type=int,
+    default=2000,
+    help="evaluate CORE metric every N steps (-1 = disable)",
+)
+parser.add_argument(
+    "--core-metric-max-per-task",
+    type=int,
+    default=500,
+    help="examples per task for CORE metric",
+)
+parser.add_argument(
+    "--sample-every",
+    type=int,
+    default=2000,
+    help="sample from model every N steps (-1 = disable)",
+)
+parser.add_argument(
+    "--save-every",
+    type=int,
+    default=-1,
+    help="save checkpoints every N steps (-1 = only at end)",
+)
 # Output
-parser.add_argument("--model-tag", type=str, default=None, help="override model tag for checkpoint directory name")
+parser.add_argument(
+    "--model-tag",
+    type=str,
+    default=None,
+    help="override model tag for checkpoint directory name",
+)
 args = parser.parse_args()
 user_config = vars(args).copy()
 
@@ -100,37 +265,58 @@ use_curriculum = args.config is not None or args.curriculum_mode
 
 if args.config:
     print0(f"Loading curriculum config from: {args.config}")
-    with open(args.config, 'r') as f:
+    with open(args.config, "r") as f:
         curriculum_config = yaml.safe_load(f)
-    
+
     # Parse stages
     stages = []
-    for stage_dict in curriculum_config['stages']:
-        stages.append(CurriculumStage(
-            name=stage_dict['name'],
-            token_ratio=stage_dict['token_ratio'],
-            context_range=tuple(stage_dict['context_range']),
-            source_weights=stage_dict['source_weights'],
-            subset_weights=stage_dict.get('subset_weights', {})
-        ))
-    
+    for stage_dict in curriculum_config["stages"]:
+        stages.append(
+            CurriculumStage(
+                name=stage_dict["name"],
+                token_ratio=stage_dict["token_ratio"],
+                context_range=tuple(stage_dict["context_range"]),
+                source_weights=stage_dict["source_weights"],
+                subset_weights=stage_dict.get("subset_weights", {}),
+            )
+        )
+
     print0(f"Loaded {len(stages)} curriculum stages")
 elif args.curriculum_mode:
-    print0("Curriculum mode enabled but no config provided - using default single-stage curriculum")
+    print0(
+        "Curriculum mode enabled but no config provided - using default single-stage curriculum"
+    )
     # Create a simple single-stage curriculum with ClimbMix
-    stages = [CurriculumStage(
-        name="foundation",
-        token_ratio=1.0,
-        context_range=(args.max_seq_len, args.max_seq_len),
-        source_weights={"climbmix": 1.0},
-        subset_weights={}
-    )]
+    stages = [
+        CurriculumStage(
+            name="foundation",
+            token_ratio=1.0,
+            context_range=(args.max_seq_len, args.max_seq_len),
+            source_weights={"climbmix": 1.0},
+            subset_weights={},
+        )
+    ]
+
+if use_curriculum:
+    context_lengths = {stage.context_range[0] for stage in stages}
+    if (
+        any(stage.context_range[0] != stage.context_range[1] for stage in stages)
+        or len(context_lengths) != 1
+    ):
+        parser.error(
+            "Curriculum training currently requires one fixed context length across all stages"
+        )
+    if args.max_seq_len != next(iter(context_lengths)):
+        parser.error("Curriculum context length must match --max-seq-len")
+    args.max_seq_len = next(iter(context_lengths))
 
 # -----------------------------------------------------------------------------
 # Compute init and wandb logging
 
 device_type = autodetect_device_type() if args.device_type == "" else args.device_type
-ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
+ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(
+    device_type, seed=args.seed
+)
 master_process = ddp_rank == 0
 synchronize = torch.cuda.synchronize if device_type == "cuda" else lambda: None
 get_max_memory = torch.cuda.max_memory_allocated if device_type == "cuda" else lambda: 0
@@ -140,32 +326,42 @@ if device_type == "cuda":
     gpu_peak_flops = get_peak_flops(gpu_device_name)
     print0(f"GPU: {gpu_device_name} | Peak FLOPS (BF16): {gpu_peak_flops:.2e}")
 else:
-    gpu_peak_flops = float('inf')
+    gpu_peak_flops = float("inf")
 
 print0(f"COMPUTE_DTYPE: {COMPUTE_DTYPE} ({COMPUTE_DTYPE_REASON})")
 
 # wandb logging init
+user_config = vars(args).copy()
 use_dummy_wandb = args.run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(
-    project="nanochat-curriculum",
-    name=args.run,
-    config={**user_config, "curriculum_enabled": use_curriculum}
+wandb_run = (
+    DummyWandb()
+    if use_dummy_wandb
+    else wandb.init(
+        project="nanochat-curriculum",
+        name=args.run,
+        config={**user_config, "curriculum_enabled": use_curriculum},
+    )
 )
 
 # Flash Attention status
 from nanochat.flash_attention import USE_FA3
+
 using_fa3 = USE_FA3
 if using_fa3:
     print0("✓ Using Flash Attention 3: efficient, new and awesome.")
 else:
     print0("!" * 80)
     if HAS_FA3 and COMPUTE_DTYPE != torch.bfloat16:
-        print0(f"WARNING: Flash Attention 3 only supports bf16, but COMPUTE_DTYPE={COMPUTE_DTYPE}. Using PyTorch SDPA fallback")
+        print0(
+            f"WARNING: Flash Attention 3 only supports bf16, but COMPUTE_DTYPE={COMPUTE_DTYPE}. Using PyTorch SDPA fallback"
+        )
     else:
         print0("WARNING: Flash Attention 3 not available, using PyTorch SDPA fallback")
     print0("WARNING: Training will be less efficient without FA3")
     if args.window_pattern != "L":
-        print0(f"WARNING: SDPA has no support for sliding window attention. Your GPU utilization will be terrible.")
+        print0(
+            f"WARNING: SDPA has no support for sliding window attention. Your GPU utilization will be terrible."
+        )
     print0("!" * 80)
 
 # -----------------------------------------------------------------------------
@@ -178,19 +374,25 @@ print0(f"Vocab size: {vocab_size:,}")
 # -----------------------------------------------------------------------------
 # Initialize the Model
 
+
 def build_model_meta(depth):
     """Build a model on meta device for a given depth."""
     base_dim = depth * args.aspect_ratio
     model_dim = ((base_dim + args.head_dim - 1) // args.head_dim) * args.head_dim
     num_heads = model_dim // args.head_dim
     config = GPTConfig(
-        sequence_len=args.max_seq_len, vocab_size=vocab_size,
-        n_layer=depth, n_head=num_heads, n_kv_head=num_heads, n_embd=model_dim,
+        sequence_len=args.max_seq_len,
+        vocab_size=vocab_size,
+        n_layer=depth,
+        n_head=num_heads,
+        n_kv_head=num_heads,
+        n_embd=model_dim,
         window_pattern=args.window_pattern,
     )
     with torch.device("meta"):
         model_meta = GPT(config)
     return model_meta
+
 
 model = build_model_meta(args.depth)
 model_config = model.config
@@ -208,7 +410,11 @@ resuming = args.resume_from_step != -1
 if resuming:
     print0(f"Resuming optimization from step {args.resume_from_step}")
     model_data, optimizer_data, meta_data = load_checkpoint(
-        checkpoint_dir, args.resume_from_step, device, load_optimizer=True, rank=ddp_rank
+        checkpoint_dir,
+        args.resume_from_step,
+        device,
+        load_optimizer=True,
+        rank=ddp_rank,
     )
     model.load_state_dict(model_data, strict=True, assign=True)
     del model_data
@@ -222,7 +428,7 @@ if args.fp8:
     else:
         from nanochat.fp8 import Float8LinearConfig, convert_to_float8_training
         import torch.nn as nn
-        
+
         def fp8_module_filter(mod: nn.Module, fqn: str) -> bool:
             if not isinstance(mod, nn.Linear):
                 return False
@@ -231,49 +437,58 @@ if args.fp8:
             if min(mod.in_features, mod.out_features) < 128:
                 return False
             return True
-        
+
         fp8_config = Float8LinearConfig.from_recipe_name(args.fp8_recipe)
         num_linear = sum(1 for m in model.modules() if isinstance(m, nn.Linear))
-        convert_to_float8_training(model, config=fp8_config, module_filter_fn=fp8_module_filter)
-        num_fp8 = sum(1 for m in model.modules() if 'Float8' in type(m).__name__)
+        convert_to_float8_training(
+            model, config=fp8_config, module_filter_fn=fp8_module_filter
+        )
+        num_fp8 = sum(1 for m in model.modules() if "Float8" in type(m).__name__)
         num_skipped = num_linear - num_fp8
-        print0(f"✓ FP8 training enabled ({args.fp8_recipe} scaling) - converted {num_fp8}/{num_linear} linear layers, skipped {num_skipped}")
+        print0(
+            f"✓ FP8 training enabled ({args.fp8_recipe} scaling) - converted {num_fp8}/{num_linear} linear layers, skipped {num_skipped}"
+        )
+
 
 @contextmanager
 def disable_fp8(model):
     """Temporarily disable FP8 for evaluation."""
     import torch.nn as nn
+
     fp8_locations = []
     for name, module in model.named_modules():
-        if 'Float8' in type(module).__name__:
-            if '.' in name:
-                parent_name, attr_name = name.rsplit('.', 1)
+        if "Float8" in type(module).__name__:
+            if "." in name:
+                parent_name, attr_name = name.rsplit(".", 1)
                 parent = model.get_submodule(parent_name)
             else:
                 parent = model
                 attr_name = name
             fp8_locations.append((parent, attr_name, module))
-    
+
     if not fp8_locations:
         yield
         return
-    
+
     for parent, attr_name, fp8_module in fp8_locations:
         linear = Linear(
-            fp8_module.in_features, fp8_module.out_features,
+            fp8_module.in_features,
+            fp8_module.out_features,
             bias=fp8_module.bias is not None,
-            device="meta", dtype=fp8_module.weight.dtype,
+            device="meta",
+            dtype=fp8_module.weight.dtype,
         )
         linear.weight = fp8_module.weight
         if fp8_module.bias is not None:
             linear.bias = fp8_module.bias
         setattr(parent, attr_name, linear)
-    
+
     try:
         yield
     finally:
         for parent, attr_name, fp8_module in fp8_locations:
             setattr(parent, attr_name, fp8_module)
+
 
 # -----------------------------------------------------------------------------
 # Compile the model
@@ -288,14 +503,16 @@ param_counts = model.num_scaling_params()
 print0(f"Parameter counts:")
 for key, value in param_counts.items():
     print0(f"{key:24s}: {value:,}")
-num_params = param_counts['total']
+num_params = param_counts["total"]
 num_flops_per_token = model.estimate_flops()
 print0(f"Estimated FLOPs per token: {num_flops_per_token:e}")
 
+
 def get_scaling_params(m):
     params_counts = m.num_scaling_params()
-    scaling_params = params_counts['transformer_matrices'] + params_counts['lm_head']
+    scaling_params = params_counts["transformer_matrices"] + params_counts["lm_head"]
     return scaling_params
+
 
 num_scaling_params = get_scaling_params(model)
 target_tokens = int(args.target_param_data_ratio * num_scaling_params)
@@ -309,7 +526,7 @@ B_REF = 2**19
 total_batch_size = args.total_batch_size
 if total_batch_size == -1:
     batch_size_ratio = target_tokens / D_REF
-    predicted_batch_size = B_REF * batch_size_ratio ** 0.383
+    predicted_batch_size = B_REF * batch_size_ratio**0.383
     total_batch_size = 2 ** round(math.log2(predicted_batch_size))
     print0(f"Auto-computed optimal batch size: {total_batch_size:,} tokens")
 
@@ -317,13 +534,17 @@ if total_batch_size == -1:
 batch_lr_scale = 1.0
 batch_ratio = total_batch_size / B_REF
 if batch_ratio != 1.0:
-    batch_lr_scale = batch_ratio ** 0.5
+    batch_lr_scale = batch_ratio**0.5
     print0(f"Scaling LRs by {batch_lr_scale:.4f} for batch size {total_batch_size:,}")
 
 # Weight decay scaling
-weight_decay_scaled = args.weight_decay * math.sqrt(total_batch_size / B_REF) * (D_REF / target_tokens)
+weight_decay_scaled = (
+    args.weight_decay * math.sqrt(total_batch_size / B_REF) * (D_REF / target_tokens)
+)
 if weight_decay_scaled != args.weight_decay:
-    print0(f"Scaling weight decay from {args.weight_decay:.6f} to {weight_decay_scaled:.6f}")
+    print0(
+        f"Scaling weight decay from {args.weight_decay:.6f} to {weight_decay_scaled:.6f}"
+    )
 
 # -----------------------------------------------------------------------------
 # Initialize Curriculum Scheduler (if using curriculum)
@@ -333,21 +554,55 @@ if use_curriculum:
     if args.num_iterations > 0:
         num_iterations = args.num_iterations
     elif args.target_flops > 0:
-        num_iterations = round(args.target_flops / (num_flops_per_token * total_batch_size))
+        num_iterations = round(
+            args.target_flops / (num_flops_per_token * total_batch_size)
+        )
     else:
         num_iterations = target_tokens // total_batch_size
-    
-    # Create curriculum scheduler
+
+    curriculum_total_tokens = total_batch_size * num_iterations
     curriculum_scheduler = CurriculumScheduler(
         stages=stages,
-        total_tokens=target_tokens,
+        total_tokens=curriculum_total_tokens,
         total_steps=num_iterations,
     )
-    
+
+    def make_resume_contract(scheduler):
+        return build_resume_contract(
+            model_config=model_config_kwargs,
+            seed=args.seed,
+            world_size=ddp_world_size,
+            rank=ddp_rank,
+            token_horizon=num_iterations * total_batch_size,
+            device_batch_size=args.device_batch_size,
+            max_seq_len=args.max_seq_len,
+            total_batch_size=total_batch_size,
+            curriculum_state=scheduler.to_dict(),
+            dataloader_config={
+                "source_weights": [stage.source_weights for stage in scheduler.stages],
+                "subset_weights": [stage.subset_weights for stage in scheduler.stages],
+                "tokenizer_batch_size": 128,
+                "buffer_size": 1000,
+            },
+            dataset_manifest_hash=dataset_manifest_hash(base_dir),
+            tokenizer_hash=tokenizer_hash(base_dir),
+        )
+
+    if resuming:
+        if "resume_contract" not in meta_data:
+            raise ValueError("Checkpoint metadata is missing resume_contract")
+        validate_resume_contract(
+            meta_data["resume_contract"], make_resume_contract(curriculum_scheduler)
+        )
+        if meta_data.get("curriculum_state"):
+            curriculum_scheduler = CurriculumScheduler.from_dict(
+                meta_data["curriculum_state"]
+            )
+
     # Print curriculum plan
     if master_process:
         curriculum_scheduler.print_curriculum_plan()
-    
+
     # Override max_seq_len with curriculum's initial context length
     initial_context = curriculum_scheduler.get_context_length(step=0)
     print0(f"Curriculum enabled: Starting context length = {initial_context}")
@@ -357,7 +612,9 @@ else:
     if args.num_iterations > 0:
         num_iterations = args.num_iterations
     elif args.target_flops > 0:
-        num_iterations = round(args.target_flops / (num_flops_per_token * total_batch_size))
+        num_iterations = round(
+            args.target_flops / (num_flops_per_token * total_batch_size)
+        )
     else:
         num_iterations = target_tokens // total_batch_size
 
@@ -391,21 +648,31 @@ if scaler is not None:
 # -----------------------------------------------------------------------------
 # Initialize DataLoader
 
-dataloader_resume_state_dict = None if not resuming else meta_data.get("dataloader_state_dict")
+dataloader_resume_state_dict = (
+    None if not resuming else meta_data.get("dataloader_state_dict")
+)
+loader_step = meta_data["step"] if resuming else 0
+initial_stage_idx = (
+    curriculum_scheduler.get_current_stage_index(step=loader_step)
+    if use_curriculum
+    else -1
+)
 
 if use_curriculum and curriculum_scheduler is not None:
     # Multi-source curriculum dataloader
     print0("Initializing multi-source curriculum dataloader...")
-    initial_weights = curriculum_scheduler.get_source_weights(step=0)
+    initial_weights = curriculum_scheduler.get_source_weights(step=loader_step)
     print0(f"Initial source weights: {initial_weights}")
-    
+
     # Get subset weights for all sources in the initial stage
     initial_subset_weights = {}
     for source_name in initial_weights.keys():
-        subset_weights_for_source = curriculum_scheduler.get_subset_weights(source_name, step=0)
+        subset_weights_for_source = curriculum_scheduler.get_subset_weights(
+            source_name, step=loader_step
+        )
         if subset_weights_for_source:
             initial_subset_weights[source_name] = subset_weights_for_source
-    
+
     train_loader = tokenizing_distributed_data_loader_multi_source(
         tokenizer=tokenizer,
         source_weights=initial_weights,
@@ -415,8 +682,9 @@ if use_curriculum and curriculum_scheduler is not None:
         device=device,
         resume_state_dict=dataloader_resume_state_dict,
         subset_weights=initial_subset_weights,
+        seed=args.seed,
     )
-    
+
     # For validation, use single source (ClimbMix) for simplicity
     build_val_loader = lambda: tokenizing_distributed_data_loader_bos_bestfit(
         tokenizer, args.device_batch_size, args.max_seq_len, split="val", device=device
@@ -424,17 +692,64 @@ if use_curriculum and curriculum_scheduler is not None:
 else:
     # Standard single-source dataloader
     train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(
-        tokenizer, args.device_batch_size, args.max_seq_len, split="train",
-        device=device, resume_state_dict=dataloader_resume_state_dict
+        tokenizer,
+        args.device_batch_size,
+        args.max_seq_len,
+        split="train",
+        device=device,
+        resume_state_dict=dataloader_resume_state_dict,
     )
     build_val_loader = lambda: tokenizing_distributed_data_loader_bos_bestfit(
         tokenizer, args.device_batch_size, args.max_seq_len, split="val", device=device
     )
 
 x, y, dataloader_state_dict = next(train_loader)
+composition_stage_counts = []
+
+
+def record_composition_stage(state_dict):
+    composition_stage_counts.append(
+        {
+            "source_tokens": {
+                name: int(count)
+                for name, count in (state_dict.get("source_token_counts") or {}).items()
+            },
+            "documents": {
+                name: int(count)
+                for name, count in (
+                    state_dict.get("source_document_counts") or {}
+                ).items()
+            },
+        }
+    )
+
+
+def make_checkpoint_resume_contract():
+    if use_curriculum and curriculum_scheduler is not None:
+        return make_resume_contract(curriculum_scheduler)
+    return build_resume_contract(
+        model_config=model_config_kwargs,
+        seed=args.seed,
+        world_size=ddp_world_size,
+        rank=ddp_rank,
+        token_horizon=num_iterations * total_batch_size,
+        device_batch_size=args.device_batch_size,
+        max_seq_len=args.max_seq_len,
+        total_batch_size=total_batch_size,
+        curriculum_state=None,
+        dataloader_config={
+            "loader": "single_source",
+            "tokenizer_batch_size": 128,
+            "buffer_size": 1000,
+        },
+        dataset_manifest_hash=dataset_manifest_hash(base_dir),
+        tokenizer_hash=tokenizer_hash(base_dir),
+    )
+
 
 # -----------------------------------------------------------------------------
 # Learning rate and momentum schedulers
+
 
 def get_lr_multiplier(it):
     warmup_iters = args.warmup_steps
@@ -446,6 +761,7 @@ def get_lr_multiplier(it):
     else:
         progress = (num_iterations - it) / warmdown_iters
         return progress * 1.0 + (1 - progress) * args.final_lr_frac
+
 
 def get_muon_momentum(it):
     warmdown_iters = round(args.warmdown_ratio * num_iterations)
@@ -459,19 +775,29 @@ def get_muon_momentum(it):
     else:
         return 0.97
 
+
 def get_weight_decay(it):
     return weight_decay_scaled * 0.5 * (1 + math.cos(math.pi * it / num_iterations))
+
 
 # -----------------------------------------------------------------------------
 # Training loop state
 
+final_train_loss = None
+final_mfu = None
+final_core_metric = None
+last_tokens_per_sec = 0.0
 if not resuming:
     step = 0
     val_bpb = None
     min_val_bpb = float("inf")
     smooth_train_loss = 0
     total_training_time = 0
-    current_stage_idx = -1  # Track curriculum stage transitions
+    current_stage_idx = initial_stage_idx
+    curve_steps = []
+    curve_train_loss = []
+    curve_val_bpb = []
+    curve_tokens_per_sec = []
 else:
     step = meta_data["step"]
     loop_state = meta_data["loop_state"]
@@ -479,7 +805,15 @@ else:
     min_val_bpb = loop_state["min_val_bpb"]
     smooth_train_loss = loop_state["smooth_train_loss"]
     total_training_time = loop_state["total_training_time"]
-    current_stage_idx = loop_state.get("current_stage_idx", -1)
+    current_stage_idx = loop_state.get("current_stage_idx", initial_stage_idx)
+    curve_steps = loop_state.get("curve_steps", [])
+    curve_train_loss = loop_state.get("curve_train_loss", [])
+    curve_val_bpb = loop_state.get("curve_val_bpb", [])
+    curve_tokens_per_sec = loop_state.get("curve_tokens_per_sec", [])
+    if step < 0 or step > num_iterations:
+        raise ValueError(
+            f"Checkpoint step {step} is incompatible with requested horizon {num_iterations}"
+        )
 
 # Gradient accumulation
 tokens_per_fwdbwd = args.device_batch_size * args.max_seq_len
@@ -488,46 +822,69 @@ assert total_batch_size % world_tokens_per_fwdbwd == 0
 grad_accum_steps = total_batch_size // world_tokens_per_fwdbwd
 print0(f"Tokens / micro-batch / rank: {tokens_per_fwdbwd:,}")
 print0(f"Tokens / micro-batch: {world_tokens_per_fwdbwd:,}")
-print0(f"Total batch size {total_batch_size:,} => gradient accumulation steps: {grad_accum_steps}")
+print0(
+    f"Total batch size {total_batch_size:,} => gradient accumulation steps: {grad_accum_steps}"
+)
 
 # -----------------------------------------------------------------------------
 # Main training loop
 
+wall_start_time = time.perf_counter()
 while True:
     last_step = step == num_iterations
     flops_so_far = num_flops_per_token * total_batch_size * step
-    
+
     # Check for curriculum stage transition
     if use_curriculum and curriculum_scheduler is not None:
         stage_idx, stage_progress = curriculum_scheduler.get_stage_progress(step=step)
-        
+
         if stage_idx != current_stage_idx:
-            # Stage transition!
             stage_info = curriculum_scheduler.get_stage_info(step=step)
             print0("=" * 80)
             print0(f"CURRICULUM STAGE TRANSITION → {stage_info['stage_name'].upper()}")
             print0("=" * 80)
             print0(f"Stage {stage_idx + 1}/{len(curriculum_scheduler.stages)}")
-            print0(f"Context range: {stage_info['context_range'][0]:,} → {stage_info['context_range'][1]:,}")
+            print0(f"Context length: {stage_info['context_length']:,}")
             print0(f"Source weights: {stage_info['source_weights']}")
             print0("=" * 80)
+            record_composition_stage(dataloader_state_dict)
+            transition_weights = stage_info["source_weights"]
+            transition_subset_weights = {}
+            for source_name in transition_weights:
+                subset_weights_for_source = curriculum_scheduler.get_subset_weights(
+                    source_name, step=step
+                )
+                if subset_weights_for_source:
+                    transition_subset_weights[source_name] = subset_weights_for_source
+            train_loader = tokenizing_distributed_data_loader_multi_source(
+                tokenizer=tokenizer,
+                source_weights=transition_weights,
+                B=args.device_batch_size,
+                T=args.max_seq_len,
+                split="train",
+                device=device,
+                resume_state_dict=None,
+                subset_weights=transition_subset_weights,
+                seed=args.seed + stage_idx * 1009,
+            )
+            x, y, dataloader_state_dict = next(train_loader)
             current_stage_idx = stage_idx
-            
-            # Note: Context length changes and dataloader weight updates would require
-            # reconstructing the dataloader, which is complex. For now, we log the transition
-            # and document that full dynamic curriculum requires more sophisticated implementation.
-    
-    # Validation evaluation (skip for curriculum training with sampled data)
-    if args.eval_every > 0 and (last_step or step % args.eval_every == 0) and not use_curriculum:
+
+    if args.eval_every > 0 and (last_step or step % args.eval_every == 0):
         model.eval()
         val_loader = build_val_loader()
-        eval_steps = args.eval_tokens // (args.device_batch_size * args.max_seq_len * ddp_world_size)
+        eval_batch_tokens = args.device_batch_size * args.max_seq_len * ddp_world_size
+        if args.eval_tokens % eval_batch_tokens:
+            raise ValueError("eval_tokens must be divisible by the validation batch")
+        eval_steps = args.eval_tokens // eval_batch_tokens
+        if eval_steps <= 0:
+            raise ValueError("eval_tokens must cover at least one validation batch")
         with disable_fp8(model):
             val_bpb = evaluate_bpb(model, val_loader, eval_steps, token_bytes)
         print0(f"Step {step:05d} | Validation bpb: {val_bpb:.6f}")
         if val_bpb < min_val_bpb:
             min_val_bpb = val_bpb
-        
+
         log_data = {
             "step": step,
             "total_training_flops": flops_so_far,
@@ -537,25 +894,43 @@ while True:
         if use_curriculum:
             log_data["curriculum/stage"] = current_stage_idx
         wandb_run.log(log_data)
+        curve_steps.append(step)
+        curve_train_loss.append(float(smooth_train_loss))
+        curve_val_bpb.append(float(val_bpb))
+        curve_tokens_per_sec.append(float(last_tokens_per_sec))
         model.train()
-    
+
     # CORE metric evaluation
     results = {}
-    if args.core_metric_every > 0 and (last_step or (step > 0 and step % args.core_metric_every == 0)):
+    if args.core_metric_every > 0 and (
+        last_step or (step > 0 and step % args.core_metric_every == 0)
+    ):
         model.eval()
         with disable_fp8(orig_model):
-            results = evaluate_core(orig_model, tokenizer, device, max_per_task=args.core_metric_max_per_task)
+            results = evaluate_core(
+                orig_model,
+                tokenizer,
+                device,
+                max_per_task=args.core_metric_max_per_task,
+            )
         print0(f"Step {step:05d} | CORE metric: {results['core_metric']:.4f}")
-        wandb_run.log({
-            "step": step,
-            "total_training_flops": flops_so_far,
-            "core_metric": results["core_metric"],
-            "centered_results": results["centered_results"],
-        })
+        final_core_metric = float(results["core_metric"])
+        wandb_run.log(
+            {
+                "step": step,
+                "total_training_flops": flops_so_far,
+                "core_metric": results["core_metric"],
+                "centered_results": results["centered_results"],
+            }
+        )
         model.train()
-    
+
     # Sampling
-    if args.sample_every > 0 and master_process and (last_step or (step > 0 and step % args.sample_every == 0)):
+    if (
+        args.sample_every > 0
+        and master_process
+        and (last_step or (step > 0 and step % args.sample_every == 0))
+    ):
         model.eval()
         prompts = [
             "The capital of France is",
@@ -566,12 +941,19 @@ while True:
         for prompt in prompts:
             tokens = tokenizer(prompt, prepend="<|bos|>")
             with disable_fp8(orig_model):
-                sample, _ = engine.generate_batch(tokens, num_samples=1, max_tokens=16, temperature=0)
+                sample, _ = engine.generate_batch(
+                    tokens, num_samples=1, max_tokens=16, temperature=0
+                )
             print0(tokenizer.decode(sample[0]))
         model.train()
-    
+
     # Save checkpoint
-    if last_step or (step > 0 and step != args.resume_from_step and args.save_every > 0 and step % args.save_every == 0):
+    if last_step or (
+        step > 0
+        and step != args.resume_from_step
+        and args.save_every > 0
+        and step % args.save_every == 0
+    ):
         metadata = {
             "step": step,
             "val_bpb": val_bpb,
@@ -581,53 +963,62 @@ while True:
             "max_seq_len": args.max_seq_len,
             "total_batch_size": total_batch_size,
             "dataloader_state_dict": dataloader_state_dict,
+            "resume_contract": make_checkpoint_resume_contract(),
             "loop_state": {
                 "min_val_bpb": min_val_bpb,
                 "smooth_train_loss": smooth_train_loss,
                 "total_training_time": total_training_time,
                 "current_stage_idx": current_stage_idx,
+                "curve_steps": curve_steps,
+                "curve_train_loss": curve_train_loss,
+                "curve_val_bpb": curve_val_bpb,
+                "curve_tokens_per_sec": curve_tokens_per_sec,
             },
         }
         if use_curriculum and curriculum_scheduler is not None:
             metadata["curriculum_state"] = curriculum_scheduler.to_dict()
-        
+
         save_checkpoint(
-            checkpoint_dir, step,
+            checkpoint_dir,
+            step,
             orig_model.state_dict(),
             optimizer.state_dict(),
             metadata,
             rank=ddp_rank,
         )
-    
+
     if last_step:
         break
-    
+
     # -------------------------------------------------------------------------
     # Training step
     synchronize()
     t0 = time.time()
-    
+    micro_losses = []
+
     for micro_step in range(grad_accum_steps):
         loss = model(x, y)
-        train_loss = loss.detach()
+        if not torch.isfinite(loss).all():
+            raise FloatingPointError("Non-finite training loss")
+        micro_losses.append(loss.detach())
         loss = loss / grad_accum_steps
         if scaler is not None:
             scaler.scale(loss).backward()
         else:
             loss.backward()
         x, y, dataloader_state_dict = next(train_loader)
-    
+
     # Optimizer step
     lrm = get_lr_multiplier(step)
     muon_momentum = get_muon_momentum(step)
     muon_weight_decay = get_weight_decay(step)
-    
+
     for group in optimizer.param_groups:
         group["lr"] = group["initial_lr"] * lrm
-        if group['kind'] == 'muon':
+        if group["kind"] == "muon":
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
-    
+
     if scaler is not None:
         scaler.unscale_(optimizer)
         if is_ddp_initialized():
@@ -637,26 +1028,32 @@ while True:
         scaler.update()
     else:
         optimizer.step()
-    
+
     model.zero_grad(set_to_none=True)
-    train_loss_f = train_loss.item()
+    train_loss_f = torch.stack(micro_losses).mean().item()
     synchronize()
     t1 = time.time()
     dt = t1 - t0
     # -------------------------------------------------------------------------
-    
+
     # Logging
     ema_beta = 0.9
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
-    debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1))
+    debiased_smooth_loss = smooth_train_loss / (1 - ema_beta ** (step + 1))
     pct_done = 100 * step / num_iterations
     tok_per_sec = int(total_batch_size / dt)
     flops_per_sec = num_flops_per_token * total_batch_size / dt
-    mfu = 100 * flops_per_sec / (gpu_peak_flops * ddp_world_size)
-    
+    if math.isfinite(gpu_peak_flops) and gpu_peak_flops > 0:
+        mfu = 100 * flops_per_sec / (gpu_peak_flops * ddp_world_size)
+    else:
+        mfu = None
+    final_train_loss = float(debiased_smooth_loss)
+    final_mfu = mfu
+    last_tokens_per_sec = float(tok_per_sec)
+
     if step > 10:
         total_training_time += dt
-    
+
     steps_done = step - 10
     if steps_done > 0:
         avg_time_per_step = total_training_time / steps_done
@@ -665,11 +1062,18 @@ while True:
         eta_str = f" | eta: {eta_seconds/60:.1f}m"
     else:
         eta_str = ""
-    
-    stage_str = f" | stage: {current_stage_idx+1}/{len(stages)}" if use_curriculum else ""
-    epoch_info = dataloader_state_dict.get('epoch', 1) if 'epoch' in dataloader_state_dict else 1
-    print0(f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.2f}ms | tok/sec: {tok_per_sec:,} | bf16_mfu: {mfu:.2f}{stage_str} | total time: {total_training_time/60:.2f}m{eta_str}")
-    
+
+    stage_str = (
+        f" | stage: {current_stage_idx+1}/{len(stages)}" if use_curriculum else ""
+    )
+    epoch_info = (
+        dataloader_state_dict.get("epoch", 1) if "epoch" in dataloader_state_dict else 1
+    )
+    mfu_display = "unknown" if mfu is None else f"{mfu:.2f}"
+    print0(
+        f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.2f}ms | tok/sec: {tok_per_sec:,} | bf16_mfu: {mfu_display}{stage_str} | total time: {total_training_time/60:.2f}m{eta_str}"
+    )
+
     if step % 100 == 0:
         log_data = {
             "step": step,
@@ -684,10 +1088,10 @@ while True:
         if use_curriculum:
             log_data["curriculum/stage"] = current_stage_idx
         wandb_run.log(log_data)
-    
+
     first_step_of_run = (step == 0) or (resuming and step == args.resume_from_step)
     step += 1
-    
+
     # GC management
     if first_step_of_run:
         gc.collect()
@@ -701,6 +1105,90 @@ print0(f"Peak memory usage: {get_max_memory() / 1024 / 1024:.2f}MiB")
 print0(f"Total training time: {total_training_time/60:.2f}m")
 if val_bpb is not None:
     print0(f"Minimum validation bpb: {min_val_bpb:.6f}")
+
+if args.results_json and master_process:
+    if val_bpb is None:
+        raise RuntimeError("Canonical results require validation BPB")
+    wall_clock_time = time.perf_counter() - wall_start_time
+    active_time = total_training_time if total_training_time > 0 else wall_clock_time
+    active_tokens_per_second = (
+        total_tokens / active_time if active_time > 0 else last_tokens_per_sec
+    )
+    wall_clock_tokens_per_second = (
+        total_tokens / wall_clock_time if wall_clock_time > 0 else last_tokens_per_sec
+    )
+    metrics = {
+        "val_bpb": float(val_bpb),
+        "best_val_bpb": float(min_val_bpb),
+        "core_metric": final_core_metric,
+        "final_train_loss": final_train_loss,
+        "training_time_seconds": float(active_time),
+        "active_training_time_seconds": float(active_time),
+        "wall_clock_training_seconds": float(wall_clock_time),
+        "tokens_per_second": float(active_tokens_per_second),
+        "active_tokens_per_second": float(active_tokens_per_second),
+        "wall_clock_tokens_per_second": float(wall_clock_tokens_per_second),
+        "mfu_percent": final_mfu,
+        "peak_vram_bytes": int(get_max_memory()),
+        "total_training_tokens": int(total_tokens),
+        "parameter_count": int(num_params),
+    }
+    curves = {
+        "step": [int(value) for value in curve_steps],
+        "train_loss": [float(value) for value in curve_train_loss],
+        "val_bpb": [float(value) for value in curve_val_bpb],
+        "tokens_per_second": [float(value) for value in curve_tokens_per_sec],
+    }
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    model_tag = args.model_tag or f"d{args.depth}_curriculum"
+    composition = None
+    if use_curriculum and curriculum_scheduler is not None:
+        all_stage_counts = composition_stage_counts + [
+            {
+                "source_tokens": {
+                    name: int(count)
+                    for name, count in (
+                        dataloader_state_dict.get("source_token_counts") or {}
+                    ).items()
+                },
+                "documents": {
+                    name: int(count)
+                    for name, count in (
+                        dataloader_state_dict.get("source_document_counts") or {}
+                    ).items()
+                },
+            }
+        ]
+        observed_tokens = {}
+        observed_documents = {}
+        for stage_counts in all_stage_counts:
+            for name, count in stage_counts["source_tokens"].items():
+                observed_tokens[name] = observed_tokens.get(name, 0) + count
+            for name, count in stage_counts["documents"].items():
+                observed_documents[name] = observed_documents.get(name, 0) + count
+        composition = build_stage_composition(
+            stages,
+            observed_source_tokens=observed_tokens,
+            observed_document_counts=observed_documents,
+        )
+    payload = build_training_results(
+        root=project_root,
+        base_dir=base_dir,
+        seed=args.seed,
+        model_tag=model_tag,
+        user_config=user_config,
+        metrics=metrics,
+        curves=curves,
+        composition=composition,
+        guardrails={
+            "max_seq_len": args.max_seq_len,
+            "device_batch_size": args.device_batch_size,
+            "total_batch_size": total_batch_size,
+            "curriculum_stage_count": len(stages) if use_curriculum else 0,
+        },
+    )
+    write_json_atomic(args.results_json, payload)
+    print0(f"Canonical results written to: {args.results_json}")
 
 wandb_run.finish()
 compute_cleanup()

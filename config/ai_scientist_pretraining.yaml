@@ -1,0 +1,8 @@
+stages:
+  - name: ai_scientist_fixed_context
+    token_ratio: 1.0
+    context_range: [2048, 2048]
+    description: Fixed-context ClimbMix baseline for automated pretraining research
+    source_weights:
+      climbmix: 1.0
+    subset_weights: {}

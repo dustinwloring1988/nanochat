@@ -63,6 +63,38 @@ nvidia-smi
 
 **Requirements:** Docker with NVIDIA GPU support, 16GB+ VRAM recommended for depth=6 testing.
 
+## AI Scientist v2 integration
+
+AI Scientist v2 is vendored at the pinned upstream revision in `ai_scientist/` and adapted for reproducible, single-GPU nanochat pretraining research. It runs experiments only by default, uses validation bits per byte as the fixed primary metric, and exports candidate patches without modifying the root repository.
+
+The Docker image contains the integration source, while the shared nanochat cache is mounted read-only and only `experiments/` is writable at runtime. Rebuild the AI Scientist image after source changes. Put provider credentials in a local ignored `.env` using `.env.example`:
+
+```text
+OPENCODE_API_KEY=
+OPENAI_API_KEY=
+OPENROUTER_API_KEY=
+NANOCHAT_CACHE_DIR=./data
+```
+
+`OPENCODE_API_KEY` is the official OpenCode Zen key used for models such as `space-bunny-free`. A ChatGPT subscription is not an OpenAI API credential; direct OpenAI API use is billed separately. OpenRouter model IDs use `openrouter/vendor/model-id`.
+
+Validate the selected provider and model:
+
+```bash
+docker compose --profile ai-scientist run --rm ai-scientist \
+  python launch_scientist_bfts.py --preflight --model opencode/space-bunny-free
+```
+
+Run one isolated nanochat training node (the provider-call opt-in is required):
+
+```bash
+bash runs/ai_scientist_smoke.sh
+```
+
+Provider calls are disabled by default; use `--allow-provider-calls` only when you intend to spend provider quota. The shared cache must already contain the tokenizer, both required ClimbMix layouts, and the evaluation bundle. Experiment artifacts are written under `experiments/`. Generated code executes with an allowlisted environment and can write only to its isolated node workspace.
+
+The default OpenCode model is `opencode/space-bunny-free`. The OpenRouter free model can be selected with `--model openrouter/stealth/space-bunny-alpha`; because that endpoint omits usage metadata, opt in explicitly with `AI_SCIENTIST_ALLOW_MISSING_USAGE=1` when running it.
+
 ## Time-to-GPT-2 Leaderboard
 
 Presently, the main focus of development is on tuning the pretraining stage, which takes the most amount of compute. Inspired by the modded-nanogpt repo and to incentivise progress and community collaboration, nanochat maintains a leaderboard for a "GPT-2 speedrun", which is the wall-clock time required to train a nanochat model to GPT-2 grade capability, as measured by the DCLM CORE score. The [runs/speedrun.sh](runs/speedrun.sh) script always reflects the reference way to train GPT-2 grade model and talk to it. The current leaderboard looks as follows:

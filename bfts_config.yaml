@@ -1,0 +1,80 @@
+data_dir: "ai_scientist_data"
+preprocess_data: false
+desc_file: null
+goal: null
+eval: null
+log_dir: "ai_scientist_logs"
+workspace_dir: "ai_scientist_workspaces"
+copy_data: true
+exp_name: nanochat_pretraining
+
+exec:
+  timeout: 1800
+  agent_file_name: runfile.py
+  format_tb_ipython: false
+  sanitize_environment: true
+
+generate_report: false
+report:
+  model: "opencode/space-bunny-free"
+  temp: 0.2
+  max_tokens: 4096
+
+experiment:
+  mode: nanochat
+  num_syn_datasets: 0
+  source_dir: "."
+  cache_dir: null
+  config_file: "config/ai_scientist_experiment.json"
+  model: "opencode/space-bunny-free"
+  require_plots: true
+
+debug:
+  stage4: true
+
+agent:
+  type: parallel
+  num_workers: 1
+  metric_only: true
+  max_nodes: 1
+  stages:
+    stage1_max_iters: 1
+    stage2_max_iters: 2
+    stage3_max_iters: 2
+    stage4_max_iters: 2
+  steps: 1
+  k_fold_validation: 1
+  multi_seed_eval:
+    num_seeds: 0
+  expose_prediction: false
+  data_preview: false
+
+  code:
+    model: "opencode/space-bunny-free"
+    temp: 0.7
+    max_tokens: 4096
+
+  feedback:
+    model: "opencode/space-bunny-free"
+    temp: 0.2
+    max_tokens: 4096
+
+  vlm_feedback:
+    model: "opencode/space-bunny-free"
+    temp: 0.2
+    max_tokens: 4096
+
+  summary:
+    model: "opencode/space-bunny-free"
+    temp: 0.2
+    max_tokens: 4096
+
+  select_node:
+    model: "opencode/space-bunny-free"
+    temp: 0.2
+    max_tokens: 4096
+
+  search:
+    max_debug_depth: 1
+    debug_prob: 0.3
+    num_drafts: 1
