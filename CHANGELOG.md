@@ -20,12 +20,13 @@ Completed the approved one-node AI Scientist gates: a real three-stage descendan
 - Root, stage-2, and stage-3 lineage children each executed exactly one node with `max_nodes=1`; all lineage manifests report `status=complete`.
 - Seed confirmation passed: mean validation BPB `1.4945820303`, seed-42 baseline `1.4919842636`, and all three seeds within the declared tolerances.
 - OpenRouter preflight passed with structured tool output; the accepted run used 10-call/100,000-input/50,000-output caps and explicit missing-usage opt-in.
-- Raw experiment artifacts were removed after compact evidence capture; `experiments/` retains only `.gitkeep`.
+- Two follow-up independent one-node monitoring runs completed with exit code `0`, 4/10 provider calls each, matching attestation hashes, equal integrity manifests, and no functional errors; their ignored artifacts remain available for review.
+- Raw gate artifacts were removed after compact evidence capture; follow-up monitor artifacts remain under ignored `experiments/` until reviewed.
 
 ### Documentation refresh
 
 - `README.md` now documents the persisted one-node preflight/run-status workflow, the three-invocation lineage handoff, sequential seed confirmation, and the tracked evidence files.
-- `plan.md`, `postmordum.md`, and this changelog now identify item 5 (security boundary and human-only promotion) as the remaining open gate.
+- `postmordum.md` and this changelog now record item 5 (security boundary and human-only promotion) as intentionally deferred for redesign; the former `plan.md` checklist was removed at the user's request.
 
 ### Safety
 

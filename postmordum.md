@@ -3,7 +3,7 @@
 - **Date:** 2026-09-25
 - **Repository:** `F:\UserData\git-repos\nanochat - Copy`
 - **Integration status:** Implemented; code hardening, live one-node validation, fixed-context multi-stage resume, bounded SFT quality evaluation, bounded long-context proof, three-stage one-node descendant lineage, sequential seed confirmation, and bounded OpenRouter provider acceptance complete; production security boundary and human-only promotion remain pending
-- **Open-work tracker:** `plan.md` remaining-work checklist
+- **Open-work tracker:** This postmortem; the former `plan.md` checklist was removed at the user's request so item 5 can be reconsidered
 - **Change control:** The user explicitly authorized committing and pushing the reviewed change set; no safety-gated research action is included.
 
 ## Executive summary
@@ -14,7 +14,7 @@ The initial implementation passed the complete Linux-container suite with 71 tes
 
 A second hardening pass now materializes a trusted baseline experiment configuration, enforces one-node BFTS execution, keeps artifacts project-relative, validates fixed-budget/result/guardrail contracts, removes the runtime repository mount, uses an allowlisted child environment, strengthens process-tree cleanup, and begins enforcing shared provider budgets without automatic prompt/response capture. The final regression also verifies controller-side result revalidation, detached controller attestation, mandatory source/cache/runtime provenance, fail-closed worker timeouts, explicit unknown-MFU handling, provider edge cases, curriculum composition metadata, active-versus-wall timing, resume-contract rejection, and pre/post integrity manifests.
 
-The integration is now validated through live one-node BFTS runs with OpenRouter `qwen/qwen3-coder-flash` and the earlier OpenCode/OpenRouter baselines. The controller and generated code still share the same container identity; a separate privilege boundary remains future work. The loader has a versioned exact snapshot/restore path, both training scripts load rank-local state, and isolated one-stage and fixed-context two-stage GPU resume probes pass. Dynamic context/long-context curriculum, production promotion, and any multi-node search remain gated. A real three-stage one-node descendant lineage and the sequential `[42, 43, 44]` confirmation protocol are now complete; multi-node search remains disabled by the one-node safety profile. Those boundaries remain in `plan.md` rather than being duplicated as a task list here.
+The integration is now validated through live one-node BFTS runs with OpenRouter `qwen/qwen3-coder-flash` and the earlier OpenCode/OpenRouter baselines. The controller and generated code still share the same container identity; a separate privilege boundary remains future work. The loader has a versioned exact snapshot/restore path, both training scripts load rank-local state, and isolated one-stage and fixed-context two-stage GPU resume probes pass. Dynamic context/long-context curriculum, production promotion, and any multi-node search remain gated. A real three-stage one-node descendant lineage and the sequential `[42, 43, 44]` confirmation protocol are now complete; multi-node search remains disabled by the one-node safety profile. The remaining security-boundary work is intentionally deferred for redesign and is recorded in this postmortem rather than an active checklist.
 
 ## Work completed
 
@@ -107,7 +107,7 @@ The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux c
 - Provider failures now cross process-pool boundaries as sanitized worker errors instead of terminating the pool.
 - Added an offline AgentManager regression that materializes accepted-parent source snapshots across main stages 1–4, verifies inherited node identity and marker propagation, and proves no provider call or second executed node occurs; the later real one-node descendant lineage closes that bounded training gate.
 - The resume audit confirmed that the previous loader state was approximate: source cursors were row-group coarse, document buffers and prefetched packed batches were not serialized, only rank 0 wrote common metadata, and stage transitions reset loader state. A versioned CPU-testable loader snapshot, rank-local checkpoint files, both training scripts, an offline checkpoint-boundary round trip, a versioned stage-transition contract, consume-before-transition handling, and resume-step side-effect suppression now cover those pieces; isolated one-stage and fixed-context two-stage GPU probes pass, while dynamic context remains future work.
-- Follow-on SFT and trace infrastructure is implemented within the approved fixed-context/opt-in scope; long-context and promotion remain gated by `plan.md`.
+- Follow-on SFT and trace infrastructure is implemented within the approved fixed-context/opt-in scope; long-context and promotion remain gated by the boundaries recorded in this postmortem.
 
 ### Bounded lineage, seed, and provider gate — 2026-09-25
 
@@ -116,12 +116,13 @@ The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux c
 - Added the sequential seed runner `scripts/seed_confirmation.py`. It runs `[42, 43, 44]` in order, archives immutable source snapshots, validates canonical results under an explicit seed-variant contract, writes and verifies controller attestations, and applies the predeclared mean/single-seed tolerances. Results were `1.4919842636`, `1.5011207957`, and `1.4906410315`; mean `1.4945820303` passed both checks. Compact evidence is `evidence/ai-scientist-seed-confirmation-20260925.json`.
 - Completed the bounded OpenRouter provider gate with persisted `preflight.json` and `run_status.json`. The accepted root used `max_nodes=1`, 10-call/100,000-input/50,000-output caps, and `AI_SCIENTIST_ALLOW_MISSING_USAGE=1`; preflight reported catalog size `458`, structured tool output, and no fallback. Evidence is `evidence/ai-scientist-baseline-openrouter-20260925.json`.
 - Repairs made during the live gate were fail-closed and recorded: journal persistence no longer depends on an optional provider summary callback; journal JSON is loaded through explicit node/relationship reconstruction; nanochat child generation is constrained to one canonical run with a recorded hyperparameter change; and CUDA runtime introspection is skipped only when a post-fork controller probe raises `RuntimeError`. The earlier OpenCode pilot and rejected handoff attempts remain unaccepted evidence.
-- Documentation refresh: `README.md` now gives copy-ready bounded preflight, root/lineage, and seed-confirmation commands; `plan.md`, `postmordum.md`, and `CHANGELOG.md` identify the same completed gates and the single remaining item 5.
-- Verification after the gate: `python -m compileall` passed for the changed AI Scientist/training modules; targeted Ruff checks passed; the focused host contract/lineage/provider/workspace tests passed `7 passed, 2 skipped`; the rebuilt image passed the compact manifest verifier; the authoritative Linux container suite passed `192 passed, 1 skipped`; and `git diff --check` is clean. Raw experiment directories were removed after compact evidence capture. `experiments/` contains only `.gitkeep`; no checkpoint, source snapshot, or generated patch was promoted. The remaining security/privilege-boundary and human-only promotion work is item 5 in `plan.md`.
+- Documentation refresh: `README.md` now gives copy-ready bounded preflight, root/lineage, and seed-confirmation commands; `postmordum.md` and `CHANGELOG.md` record the completed gates and the deferred security-boundary redesign. The former `plan.md` checklist was removed at the user's request so item 5 can be reconsidered.
+- Follow-up monitoring: two additional independent one-node OpenRouter/qwen runs completed with exit code `0`. Experiment 1 (`attempt_31`) produced `val_bpb=1.4916761800`; experiment 2 (`attempt_32`) produced `val_bpb=1.4919113572`. Each used 4 of 10 allowed provider calls, produced a matching controller-attestation result hash, and had equal pre/post integrity manifests. No functional errors or OOMs occurred. The only warnings were the known single-node tree-export divide warning, the expected no-checkpoint warning at the node cap, and unavailable OpenRouter price metadata. Follow-up artifacts remain under ignored `experiments/` for inspection and were not promoted.
+- Verification after the gate: `python -m compileall` passed for the changed AI Scientist/training modules; targeted Ruff checks passed; the focused host contract/lineage/provider/workspace tests passed `7 passed, 2 skipped`; the rebuilt image passed the compact manifest verifier; the authoritative Linux container suite passed `192 passed, 1 skipped`; and `git diff --check` is clean. The original gate artifacts were removed after compact evidence capture; the two follow-up monitor artifacts remain under ignored `experiments/`. No checkpoint, source snapshot, or generated patch was promoted. Item 5 is intentionally deferred for redesign.
 
 ### Phase 1 implementation and gate slice — 2026-09-25
 
-- Consolidated the active planning record into the pass/fail checklist in `plan.md`; the separate `sft_plan.md` and `trace_design.md` documents were removed after their requirements were implemented and recorded here.
+- The former active planning record was consolidated into the pass/fail checklist that was later removed at the user's request; the separate `sft_plan.md` and `trace_design.md` documents were also removed after their requirements were implemented and recorded here.
 - Implemented `nanochat/sft_manifest.py` and `nanochat/sft_runtime.py` with local JSONL manifest validation, SHA-256/provenance checks, safe run-local paths, fixed-2,048 token budgets, rank-aware deterministic conversation loading, exact pending-batch resume, RNG capture, and atomic rank-local checkpoint transactions.
 - Replaced the defective `scripts/sft_train_curriculum.py` entry point with a fixed-context, manifest-only implementation. It rejects the unapproved 8K–32K curriculum, never downloads datasets, requires an explicit run directory, and writes only versioned run-local checkpoints. The legacy `scripts/chat_sft.py` path is disabled because it defaulted to the trusted `chatsft_checkpoints` namespace.
 - Added `scripts/sft_smoke.py` as a bounded runtime probe. A CPU run and a rebuilt-image RTX 4060 Ti run completed two fixed-2,048 steps, committed a run-local checkpoint, resumed it, and reported model delta `0.0` with an identical next batch. The GPU probe used the production nanochat optimizer, peaked at `1,235,122,176` bytes VRAM, and completed in `14.251025s`; it makes no SFT quality claim.
@@ -196,7 +197,7 @@ The system host interpreter has Ruff but not Black or Git Bash; the synchronized
 
 - At intake, repository references were inspected before opening the selected gates. No approved production SFT manifest, license/provenance record, held-out split, or numeric quality thresholds existed locally; the only materialized SFT records were the explicitly fabricated, non-quality probe data under `experiments/`.
 - At intake, the active long-context configuration remained fixed at `2048` and the proposed `8192` schedule had no real model-loader-resume, VRAM, or throughput evidence. The active multi-seed configuration remains disabled (`num_seeds=0`, `max_nodes=1`); seed text in task/idea files is untrusted.
-- The selected scopes were recorded in `plan.md`: bounded SFT quality, a two-step `2048→8192` proof envelope, and one-node seeds `[42, 43, 44]`. All three are now completed and recorded below; multi-node search and production promotion remain open.
+- The selected scopes were recorded in the former `plan.md`: bounded SFT quality, a two-step `2048→8192` proof envelope, and one-node seeds `[42, 43, 44]`. All three are now completed and recorded below; multi-node search and production promotion remain deferred.
 - The default tokenizer corpus now excludes all SFT sources, uses only four pretraining sources summing to `1.0`, and exposes a Unicode-safe `--help` path. The default Docker pretraining workflow therefore no longer downloads SFT data indirectly.
 - Task message normalization now fails closed for malformed JSON, non-list input, missing roles, invalid message items, and empty lists; it no longer fabricates `Hello`/`Hi` records.
 - The intake slice used only local source inspection and synthetic/unit fixtures. The subsequent bounded SFT, long-context, seed-confirmation, and lineage evidence runs are recorded separately below; no promotion or trusted-cache write occurred.
@@ -321,7 +322,7 @@ The first full optimizer run failed because Triton attempted to write compiler c
 
 ### The shared cache was initially not training-ready
 
-The original external cache contained a tokenizer and old pretrained directories but no required ClimbMix train/validation shards or evaluation bundle. The minimum assets are now prepared under the ignored repository `data/` cache for the standalone smoke; the external cache remains unchanged. The minimum preparation path and estimated download size are documented in `plan.md`.
+The original external cache contained a tokenizer and old pretrained directories but no required ClimbMix train/validation shards or evaluation bundle. The minimum assets are now prepared under the ignored repository `data/` cache for the standalone smoke; the external cache remains unchanged. The minimum preparation path and estimated download size are documented in this postmortem.
 
 ### Generated configuration ownership was initially missing
 
@@ -396,7 +397,7 @@ Traces are not training data. Any future conversion to a dataset requires a sepa
 
 ## Handoff
 
-The active work checklist and remaining gates are in `plan.md`. The most relevant implementation entry points are:
+The remaining/deferred work is recorded in this postmortem; the former `plan.md` checklist was removed at the user's request so item 5 can be reconsidered. The most relevant implementation entry points are:
 
 - `ai_scientist/providers.py`
 - `ai_scientist/treesearch/nanochat_adapter.py`
@@ -439,7 +440,7 @@ The active work checklist and remaining gates are in `plan.md`. The most relevan
 - `scripts/prepare_sft_quality.py`
 - `scripts/long_context_probe.py`
 - `tests/test_curriculum_transition_state.py`
-- `sft_plan.md` and `trace_design.md` were removed after their approved requirements were consolidated into `plan.md` and this postmortem.
+- `sft_plan.md` and `trace_design.md` were removed after their approved requirements were consolidated into the former `plan.md` and this postmortem.
 - `tests/test_dynamic_context_gate.py`
 - `tests/test_sft_runtime.py`
 - `tests/test_sft_entrypoint.py`

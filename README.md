@@ -151,7 +151,7 @@ docker compose --profile ai-scientist run --rm ai-scientist \
   --output-dir /workspace/project/experiments/seed-confirmation-YYYYMMDD
 ```
 
-The compact evidence files are tracked under `evidence/`: `ai-scientist-lineage-20260925.json`, `ai-scientist-seed-confirmation-20260925.json`, and `ai-scientist-baseline-openrouter-20260925.json`. Raw experiment directories are removed after compact evidence capture; `experiments/` retains only `.gitkeep`. Dynamic context, multi-node search, and human-only promotion remain gated. See `plan.md` for the remaining security-boundary work.
+The compact evidence files are tracked under `evidence/`: `ai-scientist-lineage-20260925.json`, `ai-scientist-seed-confirmation-20260925.json`, and `ai-scientist-baseline-openrouter-20260925.json`. Gate artifacts are removed after compact evidence capture; follow-up monitor artifacts may remain under ignored `experiments/` until reviewed. Dynamic context, multi-node search, and human-only promotion remain gated. The former `plan.md` was removed intentionally so the security-boundary item can be reconsidered; see `postmordum.md` for the current record.
 
 The Unix execution sandbox uses the standard-library `resource` module and is not available on native Windows. Run the supported Windows host subset with:
 
