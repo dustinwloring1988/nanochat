@@ -29,6 +29,12 @@ experiment:
   model: "opencode/space-bunny-free"
   require_plots: true
 
+trace:
+  enabled: false
+  run_id: null
+  retention_seconds: null
+  max_bytes: null
+
 debug:
   stage4: true
 

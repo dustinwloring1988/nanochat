@@ -1,10 +1,8 @@
 import time
-import os
 
 from .utils import FunctionSpec, OutputType, opt_messages_to_list, backoff_create
-from funcy import notnone, once, select_values
+from funcy import notnone, select_values
 import anthropic
-
 
 ANTHROPIC_TIMEOUT_EXCEPTIONS = (
     anthropic.RateLimitError,
@@ -14,9 +12,20 @@ ANTHROPIC_TIMEOUT_EXCEPTIONS = (
     anthropic.APIStatusError,
 )
 
-def get_ai_client(model : str, max_retries=2) -> anthropic.AnthropicBedrock:
+
+def get_ai_client(model: str, max_retries=2) -> anthropic.AnthropicBedrock:
     client = anthropic.AnthropicBedrock(max_retries=max_retries)
     return client
+
+
+def _reject_untraced_direct_provider():
+    from ai_scientist.providers import provider_tracing_enabled
+
+    if provider_tracing_enabled():
+        raise RuntimeError(
+            "Direct Anthropic provider calls are not trace-instrumented; disable tracing or route through providers.query_model"
+        )
+
 
 def query(
     system_message: str | None,
@@ -24,6 +33,7 @@ def query(
     func_spec: FunctionSpec | None = None,
     **model_kwargs,
 ) -> tuple[OutputType, float, int, int, dict]:
+    _reject_untraced_direct_provider()
     client = get_ai_client(model_kwargs.get("model"), max_retries=0)
 
     filtered_kwargs: dict = select_values(notnone, model_kwargs)  # type: ignore
@@ -54,7 +64,6 @@ def query(
         **filtered_kwargs,
     )
     req_time = time.time() - t0
-    print(filtered_kwargs)
 
     if "thinking" in filtered_kwargs:
         assert (

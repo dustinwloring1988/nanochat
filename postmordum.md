@@ -1,6 +1,6 @@
 # Nanochat AI Scientist v2 Integration Postmortem
 
-- **Date:** 2026-09-24
+- **Date:** 2026-09-25
 - **Repository:** `F:\UserData\git-repos\nanochat - Copy`
 - **Integration status:** Implemented; code hardening, live one-node validation, and fixed-context multi-stage resume proof complete; dynamic/multi-seed expansion pending
 - **Open-work tracker:** `plan.md` remaining-work checklist
@@ -80,13 +80,13 @@ The integration is now validated through live one-node BFTS runs with both `open
 The first follow-up slice closed these items:
 
 - Controller-owned resource and plot guardrails now come from trusted constants rather than candidate-supplied limits.
-- Evaluation-token budgets must divide exactly by the active validation batch, including DDP world size.
+- Evaluation-token budgets must divide exactly by the active validation batch and configured world size.
 - Normal BFTS launches fail closed unless `--allow-provider-calls` is explicitly supplied; preflight remains an explicit diagnostic command.
 - Nanochat configuration rejects any node count other than one; unlimited search is disabled until a separate explicit mode exists.
 - Child environments now use an explicit allowlist; Hugging Face, W&B, cloud, and provider credential variables are removed.
 - Provider budgets include a run identifier, and catalog listing calls use bounded retries.
 - The Docker experiment path is consistently `/workspace/project/experiments`, with the tracked host placeholder and writable nested mount.
-- Provider/model tracing remains disabled by default; future trace capture still requires the redaction work in `plan.md`.
+- Provider/model tracing remains disabled by default; the approved opt-in writer and redaction tests are implemented in `ai_scientist/trace_writer.py`.
 
 The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux container, and the rebuilt Linux container passes 125 tests with 10 skipped. Isolated one-stage and fixed-context two-stage float32 GPU probes passed reference/resume equivalence with exact model, optimizer, loader, resume-contract, and composition state; the two-stage path reached BPB `2.268270`. Dynamic context remains disabled.
 
@@ -106,7 +106,18 @@ The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux c
 - Provider failures now cross process-pool boundaries as sanitized worker errors instead of terminating the pool.
 - Added an offline AgentManager regression that materializes accepted-parent source snapshots across main stages 1–4, verifies inherited node identity and marker propagation, and proves no provider call or second executed node occurs; real descendant training remains a future gate.
 - The resume audit confirmed that the previous loader state was approximate: source cursors were row-group coarse, document buffers and prefetched packed batches were not serialized, only rank 0 wrote common metadata, and stage transitions reset loader state. A versioned CPU-testable loader snapshot, rank-local checkpoint files, both training scripts, an offline checkpoint-boundary round trip, a versioned stage-transition contract, consume-before-transition handling, and resume-step side-effect suppression now cover those pieces; isolated one-stage and fixed-context two-stage GPU probes pass, while dynamic context remains future work.
-- Follow-on SFT, promotion, long-context, and trace work is design-only at this stage; execution remains gated by the explicit approval criteria recorded in `plan.md`.
+- Follow-on SFT and trace infrastructure is implemented within the approved fixed-context/opt-in scope; long-context and promotion remain gated by `plan.md`.
+
+### Phase 1 implementation and gate slice — 2026-09-25
+
+- Consolidated the active planning record into the pass/fail checklist in `plan.md`; the separate `sft_plan.md` and `trace_design.md` documents were removed after their requirements were implemented and recorded here.
+- Implemented `nanochat/sft_manifest.py` and `nanochat/sft_runtime.py` with local JSONL manifest validation, SHA-256/provenance checks, safe run-local paths, fixed-2,048 token budgets, rank-aware deterministic conversation loading, exact pending-batch resume, RNG capture, and atomic rank-local checkpoint transactions.
+- Replaced the defective `scripts/sft_train_curriculum.py` entry point with a fixed-context, manifest-only implementation. It rejects the unapproved 8K–32K curriculum, never downloads datasets, requires an explicit run directory, and writes only versioned run-local checkpoints. The legacy `scripts/chat_sft.py` path is disabled because it defaulted to the trusted `chatsft_checkpoints` namespace.
+- Added `scripts/sft_smoke.py` as a bounded runtime probe. A CPU run and a rebuilt-image RTX 4060 Ti run completed two fixed-2,048 steps, committed a run-local checkpoint, resumed it, and reported model delta `0.0` with an identical next batch. The GPU probe used the production nanochat optimizer, peaked at `1,235,122,176` bytes VRAM, and completed in `14.251025s`; it makes no SFT quality claim.
+- Implemented `ai_scientist/trace_writer.py` and explicit configuration plumbing. The writer provides versioned canonical JSONL, recursive deterministic redaction before serialization, untrusted-content markers, local permissions/retention/deletion, path/cache rejection, provider lifecycle/retry/fallback metadata, and fail-closed Windows behavior. Capture remains disabled by default; no real provider trace was captured.
+- Integrated trace hooks into the central provider path and launcher preflight, with an explicit opt-in `trace` configuration section. Direct VLM/Anthropic backends now fail closed while tracing is enabled rather than silently bypassing redaction.
+- Added focused SFT, trace, and dynamic-context tests. The dynamic-context gate remains non-activating; no dynamic model/dataloader run or dynamic-bucket VRAM/throughput proof exists.
+- The Linux image was rebuilt so the authoritative suite included the new files. No uploads or cache promotion were performed. The user explicitly authorized the subsequent commit and push.
 
 ## Verification evidence
 
@@ -124,6 +135,18 @@ The following table records the verified baseline plus the completed regression,
 | AI Scientist image build | Passed after hardening changes |
 | Container Python/PyTorch/CUDA versions | Python 3.11.14, PyTorch 2.9.1+cu128, CUDA 12.8 |
 | Container GPU visibility | RTX 4060 Ti detected |
+| Phase 1 dynamic-context gate tests | 8 passed on host and in Linux; no dynamic path enabled |
+| SFT runtime and entrypoint tests | 16 passed on host; fixed-context implementation and legacy-path coverage |
+| Phase 1 focused Linux suite | 66 passed, 1 Windows-ACL-only skip; SFT/trace/dynamic coverage |
+| Trace tests | 15 passed, 1 POSIX-only assertion skipped on Windows; leak/retry/fallback/path coverage |
+| Complete Linux-container suite after implementation | 165 passed, 11 skipped |
+| Host supported suite after implementation | 108 passed, 18 skipped |
+| Targeted Black check for changed Python files | Passed after formatting |
+| Targeted Ruff check for changed Python files | Passed; unrelated legacy findings remain outside scope |
+| AST compilation check | 105 Python files parsed successfully |
+| Full-tree Black check | Not clean: 45 unchanged legacy files would be reformatted; no unrelated reformatting applied |
+| Real CPU SFT resume probe | Passed; AdamW fallback for missing Windows C compiler, model delta 0, next batch equal |
+| Real GPU SFT resume probe | Passed; RTX 4060 Ti, nanochat optimizer, model delta 0, next batch equal, peak VRAM 1,235,122,176 bytes, 14.251025s |
 | Minimum data preparation | ClimbMix layouts and evaluation bundle prepared under ignored `data/` |
 | Standalone d6 GPU training smoke | Passed; final validation BPB 1.491322, CORE -0.0200, peak VRAM 8.39 GB, active 158.37s, wall 310.24s, four plots |
 | Same-seed repeat | Passed within observed tolerance on the earlier schema; final BPB delta 0.000416, maximum curve delta 0.000443 |
@@ -198,7 +221,7 @@ The container compiler cache paths and build toolchain are not temporary model c
 The current and future pretraining pilot must not:
 
 - generate or publish a paper, report PDF, citations, or peer-review document;
-- run supervised fine-tuning experiments;
+- run unapproved or production SFT experiments; the approved fixed-context run-local probe is the only executed SFT path.
 - merge an AI-generated patch into the root repository;
 - commit or push changes automatically;
 - promote generated checkpoints into the trusted nanochat cache;
@@ -208,11 +231,11 @@ The current and future pretraining pilot must not:
 
 Generated patches and checkpoints are untrusted. Promotion requires human review, a separate controlled change, clean-environment reproduction, and explicit user action.
 
-## Deferred LLM trace dataset
+## Opt-in LLM trace storage
 
-Saving AI Scientist LLM traces for later model training is a deferred, opt-in task. The current implementation does not persist a complete provider trace, and the postmortem does not claim that such a dataset exists.
+The approved implementation now provides a versioned, redacted, local JSONL writer and provider lifecycle hooks, but capture remains disabled by default and no real provider trace dataset exists. Fabricated tests exercise redaction, retries, fallbacks, tool records, permissions, retention, deletion, and fail-closed paths.
 
-A future trace format should be versioned JSONL and should record normalized messages, system prompts, provider/model, timestamps, tool schemas, tool calls and results, token usage, retries, role, idea, node, stage, and termination reason. Before collection is enabled, the project must define redaction, retention, deletion, access control, consent, dataset licensing, untrusted-content marking, and deterministic secret-leak tests. API keys, authorization headers, cookies, and secret-bearing environment values must never be persisted. Any conversion to training data must be a separate, reviewable offline step rather than automatic upload or training.
+Traces are not training data. Any future conversion to a dataset requires a separate reviewable step covering provider/dataset licensing, consent, retention, deletion, access control, untrusted-content handling, and deterministic secret-leak tests. API keys, authorization headers, cookies, and secret-bearing environment values must never be persisted. There is no automatic upload, replay, or training automation.
 
 ## Retrospective
 
@@ -241,7 +264,7 @@ A future trace format should be versioned JSONL and should record normalized mes
 
 ## Handoff
 
-The canonical implementation specification and all unfinished work remain in `plan.md`. The most relevant implementation entry points are:
+The active work checklist and remaining gates are in `plan.md`. The most relevant implementation entry points are:
 
 - `ai_scientist/providers.py`
 - `ai_scientist/treesearch/nanochat_adapter.py`
@@ -264,6 +287,19 @@ The canonical implementation specification and all unfinished work remain in `pl
 - `tests/test_multi_source_dataloader.py`
 - `tests/test_checkpoint_manager.py`
 - `nanochat/curriculum_state.py`
+- `nanochat/dynamic_context.py`
+- `nanochat/sft_manifest.py`
+- `nanochat/sft_runtime.py`
+- `ai_scientist/trace_writer.py`
+- `scripts/sft_train_curriculum.py`
+- `scripts/sft_smoke.py`
 - `tests/test_curriculum_transition_state.py`
+- `sft_plan.md` and `trace_design.md` were removed after their approved requirements were consolidated into `plan.md` and this postmortem.
+- `tests/test_dynamic_context_gate.py`
+- `tests/test_sft_runtime.py`
+- `tests/test_sft_entrypoint.py`
+- `tests/test_ai_scientist_trace.py`
+- `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-sft-probe-20260925` (bounded CPU SFT probe artifacts)
+- `experiments/sft-probe-gpu-20260925-v2` (bounded GPU SFT probe artifacts; untrusted and run-local)
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-resume-docker-97408ef017bb442eba8907cca4fbcfc9` (isolated one-stage GPU probe artifacts)
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-multistage-docker-4e91528a9f4748bbabf4bc073e8dc38c` (isolated fixed-context two-stage GPU probe artifacts)

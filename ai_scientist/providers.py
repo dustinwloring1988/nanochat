@@ -7,13 +7,14 @@ import tempfile
 import threading
 from pathlib import Path
 import time
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 import jsonschema
 import openai
 
+from ai_scientist.trace_writer import TraceConfig, TraceWriter, create_trace_writer
 from ai_scientist.utils.token_tracker import token_tracker
 
 DEFAULT_MODEL = "opencode/space-bunny-free"
@@ -145,6 +146,109 @@ class QueryResult:
     info: dict
 
 
+@dataclass
+class _ActiveQueryTrace:
+    writer: TraceWriter
+    call_id: str = ""
+    started_at: str = ""
+    started_perf: float = 0.0
+    attempts: list[dict] = field(default_factory=list)
+    message_references: list[dict] = field(default_factory=list)
+    fallback: dict = field(
+        default_factory=lambda: {
+            "occurred": False,
+            "from_mode": None,
+            "to_mode": None,
+            "reason": None,
+        }
+    )
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def observe_attempt(self, event: dict) -> None:
+        phase = event.get("phase")
+        attempt = event.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool):
+            return
+        with self.lock:
+            if phase == "start":
+                self.attempts.append(
+                    {
+                        "attempt": attempt,
+                        "timestamp_start_utc": self.writer.timestamp(),
+                        "perf_counter_start": time.perf_counter(),
+                    }
+                )
+                return
+            if phase != "end":
+                return
+            for record in reversed(self.attempts):
+                if record["attempt"] == attempt:
+                    record.update(
+                        {
+                            "timestamp_end_utc": self.writer.timestamp(),
+                            "duration_seconds": round(
+                                max(
+                                    0.0,
+                                    time.perf_counter() - record["perf_counter_start"],
+                                ),
+                                6,
+                            ),
+                            "status": event.get("status"),
+                            "error_class": event.get("error_class"),
+                            "retry": event.get("retry"),
+                        }
+                    )
+                    record.pop("perf_counter_start", None)
+                    return
+
+    def set_fallback(self, from_mode: str, to_mode: str, reason: str) -> None:
+        with self.lock:
+            self.fallback = {
+                "occurred": True,
+                "from_mode": from_mode,
+                "to_mode": to_mode,
+                "reason": reason,
+            }
+
+    def snapshot(self) -> tuple[list[dict], dict, list[dict]]:
+        with self.lock:
+            attempts = []
+            for record in self.attempts:
+                snapshot = dict(record)
+                if isinstance(record.get("retry"), dict):
+                    snapshot["retry"] = dict(record["retry"])
+                attempts.append(snapshot)
+            return (
+                attempts,
+                dict(self.fallback),
+                [dict(item) for item in self.message_references],
+            )
+
+    def finish(
+        self,
+        *,
+        status: str,
+        reason: str,
+        response: dict | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        attempts, fallback, message_references = self.snapshot()
+        self.writer.finish_provider_call(
+            self.call_id,
+            status=status,
+            reason=reason,
+            started_at=self.started_at,
+            duration_seconds=round(
+                max(0.0, time.perf_counter() - self.started_perf), 6
+            ),
+            attempts=attempts,
+            message_references=message_references,
+            fallback=fallback,
+            response=response or {},
+            termination_error=error,
+        )
+
+
 @dataclass(frozen=True)
 class FunctionContract:
     name: str
@@ -254,6 +358,40 @@ def _optional_int_env(name: str) -> int | None:
 
 
 llm_budget = LLMCallBudget()
+_trace_writer: TraceWriter | None = None
+_trace_configuration_lock = threading.Lock()
+
+
+def configure_provider_tracing(config: TraceConfig | None) -> None:
+    global _trace_writer
+    with _trace_configuration_lock:
+        previous = _trace_writer
+        replacement = None
+        _trace_writer = None
+        try:
+            replacement = create_trace_writer(config) if config is not None else None
+            if previous is not None and previous is not replacement:
+                previous.close()
+            _trace_writer = replacement
+        except BaseException:
+            for writer in (replacement, previous):
+                if writer is None:
+                    continue
+                try:
+                    writer.close()
+                except Exception:
+                    pass
+            _trace_writer = None
+            raise
+
+
+def _active_trace_writer() -> TraceWriter | None:
+    with _trace_configuration_lock:
+        return _trace_writer
+
+
+def provider_tracing_enabled() -> bool:
+    return _active_trace_writer() is not None
 
 
 def _allow_missing_usage() -> bool:
@@ -403,6 +541,140 @@ def preflight_model(model: str | ModelSpec) -> dict:
     return result
 
 
+def _start_query_trace(
+    *,
+    spec: ModelSpec,
+    messages: list[dict],
+    func_spec: FunctionContract | None,
+    structured_mode: str,
+    max_retries: int,
+    request_parameters: dict,
+    trace_context: Mapping[str, Any] | None,
+) -> _ActiveQueryTrace | None:
+    writer = _active_trace_writer()
+    if writer is None:
+        return None
+    active = _ActiveQueryTrace(writer=writer)
+    active.started_at = writer.timestamp()
+    active.started_perf = time.perf_counter()
+    tool_definition = None
+    if func_spec is not None:
+        tool_definition = {
+            "name": func_spec.name,
+            "description": func_spec.description,
+            "json_schema": func_spec.json_schema,
+            "trust": "untrusted_provider_text",
+        }
+    parameters = {
+        **request_parameters,
+        "structured_mode": structured_mode,
+        "temperature": request_parameters.get("temperature"),
+        "max_tokens": request_parameters.get("max_tokens"),
+    }
+    context = {
+        "role": "provider_query",
+        "node_id": None,
+        "stage_id": None,
+        **dict(trace_context or {}),
+    }
+    try:
+        active.call_id = writer.start_provider_call(
+            provider=spec.provider,
+            model=spec.model,
+            api_mode=spec.api_mode,
+            base_url=spec.base_url,
+            context=context,
+            request_parameters=parameters,
+            message_count=len(messages),
+            max_attempts=(max_retries + 1) * 2,
+            tool_definition=tool_definition,
+        )
+        active.message_references = writer.record_messages(
+            active.call_id, messages, "request"
+        )
+    except BaseException as exc:
+        if active.call_id:
+            active.finish(status="error", reason="trace_normalization_error", error=exc)
+        raise
+    return active
+
+
+def _record_trace_response(
+    active: _ActiveQueryTrace | None,
+    response: Any,
+    output: str | dict,
+    normalized_spec: FunctionContract | None,
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    reasoning_tokens: int,
+    cached_tokens: int,
+    usage_missing: bool,
+) -> dict:
+    if active is None:
+        return {}
+    tool_calls = _trace_tool_calls(response)
+    for tool_call in tool_calls:
+        reference = active.writer.record_tool_call(
+            active.call_id,
+            name=tool_call.get("name"),
+            arguments=tool_call.get("arguments", {}),
+            origin="untrusted_provider_output",
+        )
+        active.writer.record_tool_result(
+            active.call_id,
+            result=None,
+            status="not_executed",
+            tool_call_id=reference["tool_call_id"],
+        )
+    if normalized_spec is not None and tool_calls:
+        response_message = {
+            "role": "assistant",
+            "content": [{"type": "structured_json", "value": output}],
+        }
+    else:
+        response_message = {"role": "assistant", "content": output}
+    active.writer.record_messages(active.call_id, [response_message], "response")
+    return {
+        "model": getattr(response, "model", None),
+        "response_id": getattr(response, "id", None),
+        "system_fingerprint": getattr(response, "system_fingerprint", None),
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "cached_tokens": cached_tokens,
+            "usage_missing": usage_missing,
+        },
+        "tool_call_count": len(tool_calls),
+    }
+
+
+def _trace_tool_calls(response: Any) -> list[dict]:
+    calls = []
+    choices = getattr(response, "choices", None)
+    if choices:
+        raw_calls = getattr(getattr(choices[0], "message", None), "tool_calls", None)
+        for item in raw_calls or []:
+            function = getattr(item, "function", None)
+            if function is not None:
+                calls.append(
+                    {
+                        "name": getattr(function, "name", None),
+                        "arguments": getattr(function, "arguments", {}),
+                    }
+                )
+    for item in getattr(response, "output", None) or []:
+        if getattr(item, "type", None) == "function_call":
+            calls.append(
+                {
+                    "name": getattr(item, "name", None),
+                    "arguments": getattr(item, "arguments", {}),
+                }
+            )
+    return calls
+
+
 def query_model(
     model: str | ModelSpec | ProviderSession,
     system_message: Any = None,
@@ -413,6 +685,7 @@ def query_model(
     max_tokens: int | None = None,
     structured_mode: str = "auto",
     max_retries: int = 2,
+    trace_context: Mapping[str, Any] | None = None,
     **model_kwargs,
 ) -> QueryResult:
     session = (
@@ -427,114 +700,166 @@ def query_model(
         raise ProviderError("structured_mode must be auto, tools, or json")
     normalized_messages = _normalize_messages(system_message, user_message, messages)
     normalized_spec = _normalize_function_spec(func_spec)
+    request_parameters = {
+        **model_kwargs,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    active_trace = _start_query_trace(
+        spec=spec,
+        messages=normalized_messages,
+        func_spec=normalized_spec,
+        structured_mode=structured_mode,
+        max_retries=max_retries,
+        request_parameters=request_parameters,
+        trace_context=trace_context,
+    )
+    trace_observer = active_trace.observe_attempt if active_trace is not None else None
     fallback_used = False
     started = time.perf_counter()
     try:
-        if spec.api_mode == "chat_completions":
-            response = _query_chat(
-                session,
-                normalized_messages,
-                normalized_spec,
-                temperature,
-                max_tokens,
-                structured_mode,
-                max_retries,
-                model_kwargs,
+        try:
+            if spec.api_mode == "chat_completions":
+                response = _query_chat(
+                    session,
+                    normalized_messages,
+                    normalized_spec,
+                    temperature,
+                    max_tokens,
+                    structured_mode,
+                    max_retries,
+                    model_kwargs,
+                    trace_observer,
+                )
+            else:
+                response = _query_responses(
+                    session,
+                    normalized_messages,
+                    normalized_spec,
+                    temperature,
+                    max_tokens,
+                    structured_mode,
+                    max_retries,
+                    model_kwargs,
+                    trace_observer,
+                )
+        except openai.APIStatusError as exc:
+            if (
+                normalized_spec is None
+                or structured_mode != "auto"
+                or not _is_tool_output_unsupported(exc)
+            ):
+                raise
+            fallback_used = True
+            if active_trace is not None:
+                active_trace.set_fallback("auto", "json", "structured_tool_unsupported")
+            if spec.api_mode == "chat_completions":
+                response = _query_chat(
+                    session,
+                    normalized_messages,
+                    normalized_spec,
+                    temperature,
+                    max_tokens,
+                    "json",
+                    max_retries,
+                    model_kwargs,
+                    trace_observer,
+                )
+            else:
+                response = _query_responses(
+                    session,
+                    normalized_messages,
+                    normalized_spec,
+                    temperature,
+                    max_tokens,
+                    "json",
+                    max_retries,
+                    model_kwargs,
+                    trace_observer,
+                )
+        request_time = time.perf_counter() - started
+        input_tokens, output_tokens = _extract_usage(response)
+        reasoning_tokens = (
+            _nested_value(
+                response, "usage", "output_tokens_details", "reasoning_tokens"
             )
-        else:
-            response = _query_responses(
-                session,
-                normalized_messages,
-                normalized_spec,
-                temperature,
-                max_tokens,
-                structured_mode,
-                max_retries,
-                model_kwargs,
+            or _nested_value(
+                response, "usage", "completion_tokens_details", "reasoning_tokens"
             )
-    except openai.APIStatusError as exc:
+            or 0
+        )
+        cached_tokens = (
+            _nested_value(response, "usage", "input_tokens_details", "cached_tokens")
+            or _nested_value(
+                response, "usage", "prompt_tokens_details", "cached_tokens"
+            )
+            or 0
+        )
+        token_tracker.add_tokens(
+            spec.identifier,
+            input_tokens,
+            output_tokens,
+            reasoning_tokens,
+            cached_tokens,
+        )
+        usage_missing = input_tokens == 0 and output_tokens == 0
         if (
-            normalized_spec is None
-            or structured_mode != "auto"
-            or not _is_tool_output_unsupported(exc)
+            usage_missing
+            and (
+                llm_budget.max_input_tokens is not None
+                or llm_budget.max_output_tokens is not None
+            )
+            and not _allow_missing_usage()
         ):
-            raise
-        fallback_used = True
-        if spec.api_mode == "chat_completions":
-            response = _query_chat(
-                session,
-                normalized_messages,
-                normalized_spec,
-                temperature,
-                max_tokens,
-                "json",
-                max_retries,
-                model_kwargs,
+            raise ProviderError(
+                "Provider response did not include billable token usage"
             )
-        else:
-            response = _query_responses(
-                session,
-                normalized_messages,
-                normalized_spec,
-                temperature,
-                max_tokens,
-                "json",
-                max_retries,
-                model_kwargs,
+        llm_budget.add_usage(input_tokens, output_tokens)
+        output = _extract_output(response, normalized_spec)
+        tool_call_used = _has_structured_tool_call(response)
+        info = {
+            "model": getattr(response, "model", spec.model),
+            "response_id": getattr(response, "id", None),
+            "system_fingerprint": getattr(response, "system_fingerprint", None),
+            "api_mode": spec.api_mode,
+            "tool_call_used": tool_call_used,
+            "structured_mode_used": (
+                "tools" if tool_call_used else "json" if normalized_spec else "text"
+            ),
+            "fallback_used": fallback_used,
+            "usage_missing": usage_missing,
+        }
+        result = QueryResult(
+            output=output,
+            request_time=request_time,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            info=info,
+        )
+        trace_response = _record_trace_response(
+            active_trace,
+            response,
+            output,
+            normalized_spec,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            reasoning_tokens=reasoning_tokens,
+            cached_tokens=cached_tokens,
+            usage_missing=usage_missing,
+        )
+    except BaseException as exc:
+        if active_trace is not None:
+            active_trace.finish(
+                status="error", reason="provider_termination", error=exc
             )
-    request_time = time.perf_counter() - started
-    input_tokens, output_tokens = _extract_usage(response)
-    reasoning_tokens = (
-        _nested_value(response, "usage", "output_tokens_details", "reasoning_tokens")
-        or _nested_value(
-            response, "usage", "completion_tokens_details", "reasoning_tokens"
+        raise
+    if active_trace is not None:
+        active_trace.finish(
+            status="success",
+            reason="completed",
+            response=trace_response,
         )
-        or 0
-    )
-    cached_tokens = (
-        _nested_value(response, "usage", "input_tokens_details", "cached_tokens")
-        or _nested_value(response, "usage", "prompt_tokens_details", "cached_tokens")
-        or 0
-    )
-    token_tracker.add_tokens(
-        spec.identifier,
-        input_tokens,
-        output_tokens,
-        reasoning_tokens,
-        cached_tokens,
-    )
-    usage_missing = input_tokens == 0 and output_tokens == 0
-    if (
-        usage_missing
-        and (
-            llm_budget.max_input_tokens is not None
-            or llm_budget.max_output_tokens is not None
-        )
-        and not _allow_missing_usage()
-    ):
-        raise ProviderError("Provider response did not include billable token usage")
-    llm_budget.add_usage(input_tokens, output_tokens)
-    output = _extract_output(response, normalized_spec)
-    tool_call_used = _has_structured_tool_call(response)
-    info = {
-        "model": getattr(response, "model", spec.model),
-        "response_id": getattr(response, "id", None),
-        "system_fingerprint": getattr(response, "system_fingerprint", None),
-        "api_mode": spec.api_mode,
-        "tool_call_used": tool_call_used,
-        "structured_mode_used": (
-            "tools" if tool_call_used else "json" if normalized_spec else "text"
-        ),
-        "fallback_used": fallback_used,
-        "usage_missing": usage_missing,
-    }
-    return QueryResult(
-        output=output,
-        request_time=request_time,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        info=info,
-    )
+    return result
 
 
 def _query_chat(
@@ -546,6 +871,7 @@ def _query_chat(
     structured_mode: str,
     max_retries: int,
     model_kwargs: dict,
+    trace_observer: Callable[[dict], None] | None = None,
 ):
     kwargs = _without_none(dict(model_kwargs))
     kwargs["model"] = session.spec.model
@@ -564,6 +890,7 @@ def _query_chat(
     return _call_with_retry(
         session.client.chat.completions.create,
         max_retries=max_retries,
+        _trace_observer=trace_observer,
         **kwargs,
     )
 
@@ -584,6 +911,7 @@ def _query_responses(
     structured_mode: str,
     max_retries: int,
     model_kwargs: dict,
+    trace_observer: Callable[[dict], None] | None = None,
 ):
     system_messages = _system_messages(messages)
     input_messages = _non_system_messages(messages)
@@ -628,6 +956,7 @@ def _query_responses(
     return _call_with_retry(
         session.client.responses.create,
         max_retries=max_retries,
+        _trace_observer=trace_observer,
         **kwargs,
     )
 
@@ -648,7 +977,12 @@ def _is_tool_output_unsupported(exc: Exception) -> bool:
     return any(marker in message for marker in markers)
 
 
-def _call_with_retry(create_fn, max_retries: int = 2, **kwargs):
+def _call_with_retry(
+    create_fn,
+    max_retries: int = 2,
+    _trace_observer: Callable[[dict], None] | None = None,
+    **kwargs,
+):
     if max_retries < 0:
         raise ValueError("max_retries must be non-negative")
     retry_exceptions = (
@@ -658,14 +992,27 @@ def _call_with_retry(create_fn, max_retries: int = 2, **kwargs):
         openai.InternalServerError,
     )
     attempts = max_retries + 1
-    for attempt in range(attempts):
+    for attempt_index in range(attempts):
+        attempt = attempt_index + 1
         llm_budget.before_call()
+        if _trace_observer is not None:
+            _trace_observer({"phase": "start", "attempt": attempt})
         try:
-            return create_fn(**kwargs)
+            response = create_fn(**kwargs)
         except retry_exceptions as exc:
-            if attempt == attempts - 1:
+            if attempt == attempts:
+                if _trace_observer is not None:
+                    _trace_observer(
+                        {
+                            "phase": "end",
+                            "attempt": attempt,
+                            "status": "error",
+                            "error_class": type(exc).__name__,
+                            "retry": None,
+                        }
+                    )
                 raise
-            delay = min(60.0, 2**attempt)
+            delay = min(60.0, 2**attempt_index)
             response = getattr(exc, "response", None)
             headers = getattr(response, "headers", None)
             retry_after = headers.get("retry-after") if headers is not None else None
@@ -674,7 +1021,45 @@ def _call_with_retry(create_fn, max_retries: int = 2, **kwargs):
                     delay = min(60.0, max(delay, float(retry_after)))
                 except ValueError:
                     pass
-            time.sleep(delay + random.uniform(0, min(1.0, delay / 2)))
+            sleep_delay = delay + random.uniform(0, min(1.0, delay / 2))
+            if _trace_observer is not None:
+                _trace_observer(
+                    {
+                        "phase": "end",
+                        "attempt": attempt,
+                        "status": "error",
+                        "error_class": type(exc).__name__,
+                        "retry": {
+                            "scheduled": True,
+                            "delay_seconds": round(sleep_delay, 6),
+                        },
+                    }
+                )
+            time.sleep(sleep_delay)
+        except Exception as exc:
+            if _trace_observer is not None:
+                _trace_observer(
+                    {
+                        "phase": "end",
+                        "attempt": attempt,
+                        "status": "error",
+                        "error_class": type(exc).__name__,
+                        "retry": None,
+                    }
+                )
+            raise
+        else:
+            if _trace_observer is not None:
+                _trace_observer(
+                    {
+                        "phase": "end",
+                        "attempt": attempt,
+                        "status": "success",
+                        "error_class": None,
+                        "retry": None,
+                    }
+                )
+            return response
     raise ProviderError("Provider retry loop exited unexpectedly")
 
 

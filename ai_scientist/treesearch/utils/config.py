@@ -96,6 +96,14 @@ class ExperimentConfig:
 
 
 @dataclass
+class TraceConfig:
+    enabled: bool = False
+    run_id: Optional[str] = None
+    retention_seconds: Optional[int] = None
+    max_bytes: Optional[int] = None
+
+
+@dataclass
 class Config(Hashable):
     data_dir: Path
     desc_file: Path | None
@@ -116,6 +124,7 @@ class Config(Hashable):
     report: StageConfig
     agent: AgentConfig
     experiment: ExperimentConfig
+    trace: TraceConfig
     debug: DebugConfig
 
 
@@ -188,6 +197,25 @@ def prep_cfg(cfg: Config):
     cfg.experiment.config_file = Path(cfg.experiment.config_file).resolve()
     if cfg.experiment.cache_dir is not None:
         cfg.experiment.cache_dir = Path(cfg.experiment.cache_dir).resolve()
+    if cfg.trace.enabled:
+        if not isinstance(cfg.trace.run_id, str) or not cfg.trace.run_id:
+            raise ValueError("trace.run_id is required when tracing is enabled")
+        if (
+            not isinstance(cfg.trace.retention_seconds, int)
+            or isinstance(cfg.trace.retention_seconds, bool)
+            or cfg.trace.retention_seconds <= 0
+        ):
+            raise ValueError("trace.retention_seconds must be a positive integer")
+        if (
+            not isinstance(cfg.trace.max_bytes, int)
+            or isinstance(cfg.trace.max_bytes, bool)
+            or cfg.trace.max_bytes <= 0
+        ):
+            raise ValueError("trace.max_bytes must be a positive integer")
+        if cfg.experiment.cache_dir is None:
+            raise ValueError(
+                "trace requires an explicit experiment cache_dir to reject"
+            )
     if cfg.experiment.mode == "nanochat":
         if cfg.agent.num_workers != 1:
             raise ValueError("nanochat experiments require exactly one worker")

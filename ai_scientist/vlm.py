@@ -8,6 +8,16 @@ import os
 from PIL import Image
 from ai_scientist.utils.token_tracker import track_token_usage
 
+
+def _reject_untraced_direct_provider():
+    from ai_scientist.providers import provider_tracing_enabled
+
+    if provider_tracing_enabled():
+        raise RuntimeError(
+            "Direct VLM provider calls are not trace-instrumented; disable tracing or route through providers.query_model"
+        )
+
+
 MAX_NUM_TOKENS = 4096
 
 AVAILABLE_VLMS = [
@@ -16,18 +26,13 @@ AVAILABLE_VLMS = [
     "gpt-4o-2024-11-20",
     "gpt-4o-mini-2024-07-18",
     "o3-mini",
-
     # Ollama models
-
     # llama4
     "ollama/llama4:16x17b",
-
     # mistral
     "ollama/mistral-small3.2:24b",
-
     # qwen
     "ollama/qwen2.5vl:32b",
-
     "ollama/z-uo/qwen2.5vl_tools:32b",
 ]
 
@@ -51,6 +56,7 @@ def encode_image_to_base64(image_path: str) -> str:
 
 @track_token_usage
 def make_llm_call(client, model, temperature, system_message, prompt):
+    _reject_untraced_direct_provider()
     if model.startswith("ollama/"):
         return client.chat.completions.create(
             model=model.replace("ollama/", ""),
@@ -94,6 +100,7 @@ def make_llm_call(client, model, temperature, system_message, prompt):
 
 @track_token_usage
 def make_vlm_call(client, model, temperature, system_message, prompt):
+    _reject_untraced_direct_provider()
     if model.startswith("ollama/"):
         return client.chat.completions.create(
             model=model.replace("ollama/", ""),
@@ -141,6 +148,7 @@ def get_response_from_vlm(
     max_images: int = 25,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Get response from vision-language model."""
+    _reject_untraced_direct_provider()
     if msg_history is None:
         msg_history = []
 
@@ -205,10 +213,13 @@ def create_client(model: str) -> tuple[Any, str]:
         return openai.OpenAI(), model
     elif model.startswith("ollama/"):
         print(f"Using Ollama API with model {model}.")
-        return openai.OpenAI(
-            api_key=os.environ.get("OLLAMA_API_KEY", ""),
-            base_url="http://localhost:11434/v1"
-        ), model
+        return (
+            openai.OpenAI(
+                api_key=os.environ.get("OLLAMA_API_KEY", ""),
+                base_url="http://localhost:11434/v1",
+            ),
+            model,
+        )
     else:
         raise ValueError(f"Model {model} not supported.")
 
@@ -276,6 +287,7 @@ def get_batch_responses_from_vlm(
     Returns:
         Tuple of (list of response strings, list of message histories)
     """
+    _reject_untraced_direct_provider()
     if msg_history is None:
         msg_history = []
 

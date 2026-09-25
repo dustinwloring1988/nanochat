@@ -20,6 +20,8 @@ from rich.progress import (
 from rich.text import Text
 from rich.status import Status
 from rich.tree import Tree
+from ai_scientist.providers import configure_provider_tracing
+from ai_scientist.trace_writer import TraceConfig
 from .utils.config import load_task_desc, prep_agent_workspace, save_run, load_cfg
 from .agent_manager import AgentManager
 from pathlib import Path
@@ -201,7 +203,22 @@ def perform_experiments_bfts(config_path: str):
         screen=True,
     )
 
-    manager.run(exec_callback=create_exec_callback(status), step_callback=step_callback)
+    configure_provider_tracing(
+        TraceConfig(
+            run_workspace=cfg.workspace_dir,
+            run_id=cfg.trace.run_id or cfg.exp_name,
+            enabled=cfg.trace.enabled,
+            retention_seconds=cfg.trace.retention_seconds,
+            max_bytes=cfg.trace.max_bytes,
+            cache_dir=cfg.experiment.cache_dir,
+        )
+    )
+    try:
+        manager.run(
+            exec_callback=create_exec_callback(status), step_callback=step_callback
+        )
+    finally:
+        configure_provider_tracing(None)
 
     manager_pickle_path = cfg.log_dir / "manager.pkl"
     try:

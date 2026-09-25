@@ -6,15 +6,19 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 if not os.environ.get("AI_SCIENTIST_RUN_ID"):
     os.environ["AI_SCIENTIST_RUN_ID"] = uuid.uuid4().hex
 
 from ai_scientist.providers import (
     DEFAULT_MODEL,
     ProviderError,
+    configure_provider_tracing,
     llm_budget,
     preflight_model,
 )
+from ai_scientist.trace_writer import TraceConfig
 from ai_scientist.treesearch.bfts_utils import edit_bfts_config_file, idea_to_markdown
 from ai_scientist.treesearch.perform_experiments_bfts_with_agentmanager import (
     perform_experiments_bfts,
@@ -74,6 +78,25 @@ def save_token_tracker(idea_dir: Path):
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
+def trace_config_from_run_config(config_path: Path, workspace: Path):
+    with open(config_path, "r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle)
+    trace = payload.get("trace", {}) if isinstance(payload, dict) else {}
+    if not isinstance(trace, dict) or not trace.get("enabled", False):
+        return None
+    cache_dir = os.environ.get("NANOCHAT_SHARED_CACHE")
+    if not cache_dir:
+        raise ValueError("NANOCHAT_SHARED_CACHE is required when tracing is enabled")
+    return TraceConfig(
+        run_workspace=workspace,
+        run_id=trace.get("run_id") or "preflight",
+        enabled=True,
+        retention_seconds=trace.get("retention_seconds"),
+        max_bytes=trace.get("max_bytes"),
+        cache_dir=cache_dir,
+    )
+
+
 def build_integrity_manifest(project_root: Path, cache_dir: Path) -> dict:
     return {
         "repository_sha256": repository_hash(project_root),
@@ -96,12 +119,6 @@ def main():
     if not args.allow_provider_calls:
         raise RuntimeError(
             "Provider calls are disabled by default; pass --allow-provider-calls explicitly"
-        )
-    preflight = run_preflight(args.model)
-    if not preflight.get("ok"):
-        raise RuntimeError(
-            "Provider preflight failed: "
-            + str(preflight.get("error", "selected model is unavailable"))
         )
 
     project_root = Path(__file__).resolve().parent
@@ -151,6 +168,19 @@ def main():
         model=args.model,
         max_nodes=args.max_nodes,
     )
+    preflight_trace = trace_config_from_run_config(Path(run_config_path), idea_dir)
+    if preflight_trace is not None:
+        configure_provider_tracing(preflight_trace)
+    try:
+        preflight = run_preflight(args.model)
+    finally:
+        if preflight_trace is not None:
+            configure_provider_tracing(None)
+    if not preflight.get("ok"):
+        raise RuntimeError(
+            "Provider preflight failed: "
+            + str(preflight.get("error", "selected model is unavailable"))
+        )
     cache_dir = Path(os.environ["NANOCHAT_SHARED_CACHE"]).resolve()
     pre_manifest = build_integrity_manifest(project_root, cache_dir)
     write_json_atomic(idea_dir / "integrity_before.json", pre_manifest)
