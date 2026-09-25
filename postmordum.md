@@ -118,6 +118,7 @@ The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux c
 - Integrated trace hooks into the central provider path and launcher preflight, with an explicit opt-in `trace` configuration section. Direct VLM/Anthropic backends now fail closed while tracing is enabled rather than silently bypassing redaction.
 - Added focused SFT, trace, and dynamic-context tests. The dynamic-context gate remains non-activating; no dynamic model/dataloader run or dynamic-bucket VRAM/throughput proof exists.
 - The Linux image was rebuilt so the authoritative suite included the new files. No uploads or cache promotion were performed. The user explicitly authorized the subsequent commit and push.
+- Final reviewed commit `54057e2` was pushed to `origin/master` on 2026-09-25.
 
 ## Verification evidence
 
