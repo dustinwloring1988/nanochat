@@ -11,17 +11,19 @@ Or for fast testing with ClimbMix only:
     python -m scripts.tok_train_curriculum --mix minimal --total-chars 500000000
 """
 
-import os
 import argparse
+import os
+import time
+
+import torch
 
 from nanochat.common import get_base_dir, print_banner
+from nanochat.tokenizer import RustBPETokenizer
 from nanochat.tokenizer_corpus import (
     build_mixed_tokenizer_corpus,
     get_default_pretraining_mix,
     get_minimal_test_mix,
 )
-
-print_banner()
 
 # -----------------------------------------------------------------------------
 # CLI arguments
@@ -31,7 +33,7 @@ parser.add_argument(
     type=str,
     default="default",
     choices=["default", "minimal"],
-    help="Corpus mixing strategy: default (60%% ClimbMix + Nemotron sources) or minimal (ClimbMix only)"
+    help="Corpus mixing strategy: default (pretraining sources only) or minimal (ClimbMix only)"
 )
 parser.add_argument(
     "--total-chars",
@@ -58,6 +60,7 @@ parser.add_argument(
     help="Random seed for corpus sampling"
 )
 args = parser.parse_args()
+print_banner()
 
 # -----------------------------------------------------------------------------
 # Select mixing strategy
@@ -65,10 +68,10 @@ args = parser.parse_args()
 if args.mix == "default":
     print("Using DEFAULT multi-source curriculum mix:")
     print("  60% ClimbMix (general web text)")
-    print("  15% Nemotron v1 (STEM reasoning, math, code)")
-    print("  10% Nemotron v1.1 (code concepts, algorithms)")
-    print("  10% Nemotron v1.2 (fact-seeking, QA)")
-    print("   5% future SFT samples (omitted for now)")
+    print("  16% Nemotron v1 (STEM reasoning, math, code)")
+    print("  12% Nemotron v1.1 (code concepts, algorithms)")
+    print("  12% Nemotron v1.2 (fact-seeking, QA)")
+    print("  No SFT sources are included; SFT requires a separately approved manifest")
     print()
     source_ratios = get_default_pretraining_mix()
 else:
@@ -104,10 +107,7 @@ print()
 # -----------------------------------------------------------------------------
 # Train tokenizer (using RustBPE tokenizer)
 
-from nanochat.tokenizer import RustBPETokenizer
-import time
-
-print(f"Training tokenizer with RustBPE...")
+print("Training tokenizer with RustBPE...")
 print(f"This will take a few minutes for {args.total_chars/1e9:.1f}B characters...")
 print()
 
@@ -134,7 +134,6 @@ tokenizer.save(tokenizer_dir)
 print(f"Tokenizer saved to: {tokenizer_dir}")
 
 # Save token_bytes mapping for efficient evaluation
-import torch
 vocab_size = tokenizer.get_vocab_size()
 special_ids = set(tokenizer.encode_special(s) for s in tokenizer.get_special_tokens())
 token_bytes = []

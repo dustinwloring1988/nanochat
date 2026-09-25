@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-25
 - **Repository:** `F:\UserData\git-repos\nanochat - Copy`
-- **Integration status:** Implemented; code hardening, live one-node validation, and fixed-context multi-stage resume proof complete; dynamic/multi-seed expansion pending
+- **Integration status:** Implemented; code hardening, live one-node validation, fixed-context multi-stage resume, bounded SFT quality evaluation, and bounded long-context proof complete; production dynamic activation/multi-seed expansion pending
 - **Open-work tracker:** `plan.md` remaining-work checklist
 - **Change control:** The user explicitly authorized committing and pushing the reviewed change set; no safety-gated research action is included.
 
@@ -182,7 +182,50 @@ The system host interpreter has Ruff but not Black or Git Bash; the synchronized
 | `docker compose --profile ai-scientist build ai-scientist` | Passed; context `30.72 kB` |
 | `docker compose --profile ai-scientist run --rm ai-scientist python -m pytest -q -rs` | `178 passed, 1 skipped in 60.59s` |
 
-## Verification evidence
+### Gate intake and data-safety slice — 2026-09-25
+
+- At intake, repository references were inspected before opening the selected gates. No approved production SFT manifest, license/provenance record, held-out split, or numeric quality thresholds existed locally; the only materialized SFT records were the explicitly fabricated, non-quality probe data under `experiments/`.
+- At intake, the active long-context configuration remained fixed at `2048` and the proposed `8192` schedule had no real model-loader-resume, VRAM, or throughput evidence. The active multi-seed configuration remains disabled (`num_seeds=0`, `max_nodes=1`); seed text in task/idea files is untrusted.
+- The selected scopes were recorded in `plan.md`: bounded SFT quality, a two-step `2048→8192` proof envelope, and one-node seeds `[42, 43, 44]`. The first two are now completed and recorded below; the multi-seed scope remains open.
+- The default tokenizer corpus now excludes all SFT sources, uses only four pretraining sources summing to `1.0`, and exposes a Unicode-safe `--help` path. The default Docker pretraining workflow therefore no longer downloads SFT data indirectly.
+- Task message normalization now fails closed for malformed JSON, non-list input, missing roles, invalid message items, and empty lists; it no longer fabricates `Hello`/`Hi` records.
+- The intake slice used only local source inspection and synthetic/unit fixtures. The subsequent bounded SFT and long-context evidence runs are recorded separately below; no multi-seed run, provider call, generated-code execution, promotion, or trusted-cache write occurred.
+- A separately authorized OpenCode pilot preflight passed with the approved `10`-call/`100,000`-input/`50,000`-output caps. The one-node run was aborted during generated-code execution before a result or integrity-after manifest; its run-local directory is untrusted and is not accepted as evidence.
+
+| Command | Result |
+| --- | --- |
+| `python -m pytest -q tests/test_tasks.py tests/test_tokenizer.py` | `20 passed` |
+| `python -m pytest -q --ignore=tests/test_execution.py` | `114 passed, 18 skipped in 47.08s` |
+| `python -m scripts.tok_train_curriculum --help` | Passed; no Unicode error |
+| `python -m ruff check tasks/common.py scripts/tok_train_curriculum.py nanochat/tokenizer_corpus.py tests/test_tasks.py tests/test_tokenizer.py` | Passed |
+| Tracked AST parse and `python -m compileall -q nanochat scripts ai_scientist tasks tests` | `106` tracked files parsed; compilation passed |
+| `docker compose --profile ai-scientist build ai-scientist` and full container tests | `181 passed, 1 skipped in 62.92s` |
+| OpenCode preflight and bounded one-node pilot | Preflight passed; pilot aborted during generated-code execution before result; no accepted evidence |
+
+## Completed items 1, 2, and 7 — 2026-09-25
+
+### Production SFT quality evaluation
+
+- Prepared a run-local package from `HuggingFaceTB/smol-smoltalk` at pinned revision `f73fe857d519ff6ac5af2ea67c4d3834da7b8bcc`; the dataset card reported Apache-2.0 and the manifest records that license and revision.
+- The approved package contains 64 train records and 32 held-out records. The manifests have SHA-256 identities `ed96567df02202d0da96659bdd551bb90daf0d222672023a48a292842f42470b` and `27a756ab23872d7b00a41d22f1da1341d667bae58c6f32c8d42e99de3cc11204`; canonical conversation comparison found zero overlap.
+- The quality plan hash is `375c7d49d87e4d4f0ca52eac27d4d4f2effa04694eb3fd2a4360137506d7fd17`. It declares fixed context `2048`, device batch `1`, world size `1`, effective batch `8192`, `16` optimization steps, `65,536` held-out evaluation tokens, pass BPB `<= 1.6`, stop BPB `>= 2.0`, and minimum improvement `>= 0.01` BPB.
+- A clean RTX 4060 Ti run evaluated the final run-local checkpoint over all 32 held-out batches. Baseline held-out BPB was `1.6210418971`; final BPB was `1.8486887031`; improvement was `-0.2276468060`. The recorded decision is `inconclusive`, `quality_claim=false`, and `promotion=not authorized`. This is a completed quality evaluation, not an accepted model or promotion.
+- Compact evidence is tracked in `evidence/sft-quality-20260925.json`; the full run-local manifests, plan, checkpoints, and result remain under ignored `experiments/sft-quality-20260925/`.
+
+### Long-context proof
+
+- The approved schedule hash is `b9561c2724ac059f5a3d35e7212aa086a81e935aa658735d446b618597eca83b` for `2048→8192`, batch `1`, world size `1`, effective token batch `8192`, two steps, and gradient accumulation `[4, 1]`.
+- A real depth-6 nanochat model with maximum sequence length `8192`, the pinned local ClimbMix loader, deterministic CUDA execution, and a run-local checkpoint boundary completed forward/backward at both buckets. The 8K step had peak allocated/reserved VRAM of `6,332,701,184`/`7,417,626,624` bytes, active throughput of `7,307.2525` tokens/sec, and finite loss `4.8043961525`.
+- Reference-versus-resume model and optimizer maximum absolute deltas were `0.0`; loader state and next-batch equality were true. The evidence hash is `1d32c5a1334bc62d9969e776f0461e0b19604c7ac85e561fb74b59e6c3d59da6`.
+- Explicit approval `AG-LC-20260925` is recorded in `config/long_context_activation.json` for the bounded proof only. The default dynamic-context flag remains `False`; no production curriculum, checkpoint promotion, or trusted-cache write was activated.
+- Compact evidence is tracked in `evidence/long-context-20260925.json`; the full run-local evidence and resume checkpoint remain under ignored `experiments/long-context-20260925/`.
+
+### License reorganization review
+
+- The preserved AI Scientist license blob is unchanged: `git rev-parse HEAD:AI_SCIENTIST_LICENSE` and `git hash-object licenses/AI_SCIENTIST_LICENSE` both equal `9ef63c0fd365d52ae4e5f186ace9a37682826cf6`.
+- The preserved nanochat MIT blob is unchanged: `git rev-parse HEAD:LICENSE` and `git hash-object licenses/NANOCHAT_LICENSE` both equal `72d95c190c0d14341d5b0720e28c88fb58690821`.
+- The root `LICENSE` now clearly separates the original nanochat MIT grant from the separately licensed `ai_scientist/` component. `README.md` and `CHANGELOG.md` were updated so repository documentation no longer describes the whole project as uniformly MIT. The component license and upstream pin remain preserved.
+
 
 The following table records the verified baseline plus the completed regression, live one-node runs, and fixed-context multi-stage proof. The unresolved items are security/architecture and explicitly gated expansion, not known test regressions:
 
@@ -202,15 +245,20 @@ The following table records the verified baseline plus the completed regression,
 | SFT runtime and entrypoint tests | 16 passed on host; fixed-context implementation and legacy-path coverage |
 | Phase 1 focused Linux suite | 66 passed, 1 Windows-ACL-only skip; SFT/trace/dynamic coverage |
 | Trace tests | 15 passed, 1 POSIX-only assertion skipped on Windows; leak/retry/fallback/path coverage |
-| Complete Linux-container suite after implementation | 178 passed, 1 skipped; the remaining skip is the Windows-only ACL assertion |
-| Host supported suite after implementation | 111 passed, 18 skipped |
+| Complete Linux-container suite after implementation | 190 passed, 1 skipped; the remaining skip is the Windows-only ACL assertion |
+| Host supported suite after implementation | 123 passed, 18 skipped |
 | Synchronized CPU dev host suite | 149 passed, 16 skipped; two POSIX assertions, ten host FA3 comparisons, and four CPU-venv CUDA optimizer checks remain skipped |
 | Focused host AI Scientist tests | 53 passed, 2 skipped; only POSIX assertions remain skipped |
 | Host GPU dev environment | CUDA detected; four optimizer tests blocked by missing native Windows Triton |
 | Host dependency lock | `uv.lock` synchronized; `kernels>=0.17.1` |
-| Docker build context | `.venv-*/` excluded; final context `30.72 kB` |
-| Targeted Black check for workflow Python files | Passed in the AI Scientist image |
-| Targeted Ruff check for changed Python files | Passed; unrelated legacy findings remain outside scope |
+| Docker build context | `.venv-*/` excluded; final context `303.61 kB` |
+| Gate intake and completion evidence | SFT quality package/evaluation, `2048→8192` model-loader-resume/resource proof, and license reorganization review recorded; items 3–6 remain open |
+| SFT quality result | 64/32 pinned Apache-2.0 records, zero overlap, baseline/final BPB `1.621042`/`1.848689`, decision `inconclusive`, no promotion |
+| Long-context result | Exact plan/hash approval, 8K peak allocated/reserved `6,332,701,184`/`7,417,626,624` bytes, resume model/optimizer delta `0.0`, loader/next-batch equal |
+| Pretraining-only tokenizer default | Four pretraining sources, sum `1.0`, no SFT download, Unicode-safe help |
+| Task normalization | Malformed records fail closed; no fabricated fallback messages |
+| Targeted Black check for changed Python files | Passed with `.venv` Black `26.5.1`; the read-only Docker check could not rewrite files |
+| Targeted Ruff check for changed Python files | Passed; full-tree Ruff still reports 39 pre-existing legacy findings outside this change |
 | Targeted formatter check for attention files | Not clean because `nanochat/flash_attention.py` and `tests/test_attention_fallback.py` retain pre-existing formatter drift; no unrelated reformatting was applied |
 | AST compilation check | 106 tracked Python files parsed successfully; existing non-fatal escape warnings remain in `perform_icbinb_writeup.py` |
 | FA3 kernel discovery and attention suite | Docker RTX 4060 Ti sm89: kernel API v1 resolved, synthetic probe finite, `16 passed, 0 skipped` |
@@ -235,6 +283,7 @@ The following table records the verified baseline plus the completed regression,
 | Windows host test command | Documented `python -m pytest -q --ignore=tests/test_execution.py`; Linux container remains authoritative for the full suite |
 | OpenCode live preflight | Passed; catalog-listed, tool calls supported, structured output passed |
 | OpenCode live one-node BFTS | Passed; BPB 1.491380, controller-accepted result and attestation |
+| Current bounded OpenCode pilot | Preflight passed; aborted during generated-code execution before result; no accepted evidence |
 | OpenRouter live preflight | Passed; JSON structured mode, three preflight attempts, no tool-call support reported |
 | OpenRouter live one-node BFTS | Passed with `AI_SCIENTIST_ALLOW_MISSING_USAGE=1`; BPB 1.491395, controller-accepted result and attestation |
 
@@ -274,12 +323,12 @@ The original `runs/ai_scientist_smoke.sh` invoked a profile capable of running m
 
 | Measure | Why it exists | Required follow-up |
 | --- | --- | --- |
-| Fixed 2,048-token context | Avoids unsafe dynamic dataloader and compiled-shape changes | Implement and test bucketed context transitions before enabling curriculum context research |
+| Fixed 2,048-token context | Avoids unsafe dynamic dataloader and compiled-shape changes | The bounded bucket proof is complete; integrate the approved profile before enabling production curriculum context research |
 | Provisional 200-iteration d6 profile | Keeps the first research budget deterministic but has not been benchmarked on this GPU | Measure runtime, VRAM, throughput, and metric variance; record a stable budget |
 | Candidate-authored result file | Generated code can write a plausible `results.json` in the shared account | Parent revalidation and detached HMAC attestation are implemented; move to a separate privilege domain for stronger isolation |
 | Candidate source inheritance | Archive/reuse is implemented and unit-tested after the review found silent reversion to root | Run a full multi-stage BFTS descendant test before treating stage results as cumulative |
 | Same-container execution boundary | Removing the repository bind and allowlisting the environment blocks accidental access but not same-UID inspection or sibling writes | Separate controller and generated execution into distinct services or privilege domains |
-| Improved but non-exact sampler resume | Versioned contracts reject incompatible model/data/curriculum settings; loader snapshots, rank-local files, both training scripts, offline and real one-/two-stage probes, and composition restoration preserve/load state; dynamic context remains disabled | Add dynamic-context/long-context proofs before enabling that research mode |
+| Improved but non-exact sampler resume | Versioned contracts reject incompatible model/data/curriculum settings; loader snapshots, rank-local files, both training scripts, offline and real one-/two-stage probes, and composition restoration preserve/load state; dynamic context remains disabled | Integrate the approved dynamic profile into production training only after a separate activation review |
 | Linux-container test authority | Native Windows lacks Unix sandbox modules | Use `python -m pytest -q --ignore=tests/test_execution.py` on Windows; keep the Linux container authoritative for the full suite |
 | Live API path | OpenCode and OpenRouter one-node live paths pass; OpenRouter requires explicit missing-usage opt-in because its free endpoint omits token metadata | Keep credentials local, rerun preflight before live work, and do not weaken default fail-closed budgets |
 | Provider hardening verification | Offline retry, budget, multimodal, role-routing, trace-privacy, and live OpenCode/OpenRouter one-node checks pass | Keep live preflight and bounded one-node runs as the acceptance gate |
@@ -361,19 +410,35 @@ The active work checklist and remaining gates are in `plan.md`. The most relevan
 - `nanochat/dynamic_context.py`
 - `nanochat/sft_manifest.py`
 - `nanochat/sft_runtime.py`
+- `nanochat/sft_quality.py`
+- `nanochat/long_context.py`
 - `nanochat/flash_attention.py`
+- `nanochat/tokenizer_corpus.py`
+- `scripts/tok_train_curriculum.py`
+- `tasks/common.py`
 - `pyproject.toml` and `uv.lock`
 - `.dockerignore`
 - `ai_scientist/trace_writer.py`
 - `scripts/sft_train_curriculum.py`
 - `scripts/sft_smoke.py`
+- `scripts/prepare_sft_quality.py`
+- `scripts/long_context_probe.py`
 - `tests/test_curriculum_transition_state.py`
 - `sft_plan.md` and `trace_design.md` were removed after their approved requirements were consolidated into `plan.md` and this postmortem.
 - `tests/test_dynamic_context_gate.py`
 - `tests/test_sft_runtime.py`
 - `tests/test_sft_entrypoint.py`
 - `tests/test_attention_fallback.py`
+- `tests/test_tasks.py`
+- `tests/test_tokenizer.py`
 - `tests/test_ai_scientist_trace.py`
+- `tests/test_sft_quality.py`
+- `tests/test_long_context.py`
+- `evidence/sft-quality-20260925.json`
+- `evidence/long-context-20260925.json`
+- `config/long_context_activation.json`
+- `experiments/sft-quality-20260925` (run-local SFT quality artifacts)
+- `experiments/long-context-20260925` (run-local long-context proof artifacts)
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-sft-probe-20260925` (bounded CPU SFT probe artifacts)
 - `experiments/sft-probe-gpu-20260925-v2` (bounded GPU SFT probe artifacts; untrusted and run-local)
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-resume-docker-97408ef017bb442eba8907cca4fbcfc9` (isolated one-stage GPU probe artifacts)

@@ -1,0 +1,13 @@
+{
+  "approval_id": "AG-LC-20260925",
+  "approved": true,
+  "approved_at": "2026-09-25",
+  "approved_by": "user",
+  "evidence_hash": "1d32c5a1334bc62d9969e776f0461e0b19604c7ac85e561fb74b59e6c3d59da6",
+  "minimum_tokens_per_second": 1.0,
+  "plan_hash": "b9561c2724ac059f5a3d35e7212aa086a81e935aa658735d446b618597eca83b",
+  "safety_margin_bytes": 268435456,
+  "schema_version": 1,
+  "scope": "bounded two-step local proof; no production promotion",
+  "vram_limit_bytes": 15032385536
+}

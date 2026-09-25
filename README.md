@@ -37,6 +37,14 @@ Your base model is saved to `./data/base_checkpoints/`, with datasets in
 fixed-context runtime/resume probe, which is not a quality run, use
 `python -m scripts.sft_smoke --help` for its required inputs.
 
+Approved bounded evidence runs are recorded under `evidence/`. The local SFT
+quality package is prepared with `python -m scripts.prepare_sft_quality
+--help`, and the fixed-context trainer requires both a held-out manifest and
+an approved `--quality-plan` before it writes `quality_result.json`. The
+long-context proof is run with `python -m scripts.long_context_probe --help`;
+it records model, loader, resume, resource, and activation evidence without
+promoting a checkpoint or enabling the default dynamic gate.
+
 ### Docker Quick Reference
 
 ```bash
@@ -227,6 +235,12 @@ I've published a number of guides that might contain helpful information, most r
 ```
 .
 ├── LICENSE
+├── licenses
+│   ├── AI_SCIENTIST_LICENSE
+│   └── NANOCHAT_LICENSE
+├── evidence
+│   ├── long-context-20260925.json
+│   └── sft-quality-20260925.json
 ├── README.md
 ├── dev
 │   ├── nanochat.png
@@ -259,6 +273,8 @@ I've published a number of guides that might contain helpful information, most r
 │   ├── chat_sft.py                 # Disabled legacy SFT entry point
 │   ├── sft_smoke.py                # Bounded fixed-context runtime probe
 │   ├── sft_train_curriculum.py     # Fixed-context, run-local SFT trainer
+│   ├── prepare_sft_quality.py      # Pinned local quality-package preparation
+│   ├── long_context_probe.py       # Approved 2K-to-8K evidence probe
 │   ├── infer_bench.py              # Inference: latency/throughput/VRAM bench
 │   ├── tok_eval.py                 # Tokenizer: evaluate compression rate
 │   └── tok_train.py                # Tokenizer: train it
@@ -310,4 +326,9 @@ If you find nanochat helpful in your research cite simply as:
 
 ## License
 
-MIT
+This repository is multi-license. The original nanochat implementation and
+project-specific code are under the MIT License in `LICENSE`. The vendored
+`ai_scientist/` component is governed by The AI Scientist Source Code License
+in `licenses/AI_SCIENTIST_LICENSE`; the preserved upstream nanochat notice is in
+`licenses/NANOCHAT_LICENSE`. The component terms apply independently and are
+not replaced by the root MIT grant.

@@ -1,6 +1,7 @@
 MIT License
 
 Copyright (c) 2025 Andrej Karpathy
+Copyright (c) 2026 Dustin Loring
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +20,33 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+COMPONENT LICENSES
+==================
+
+This repository is a multi-license project. The MIT terms above apply to the
+original nanochat code and project-specific code, except for the separately
+licensed components identified below. The component licenses remain applicable
+and are not replaced by this project license.
+
+Original nanochat
+-----------------
+
+The original nanochat source, including the upstream `nanochat/` training
+implementation, is licensed under the MIT License. Its upstream copyright
+notice and complete license text are preserved in
+`licenses/NANOCHAT_LICENSE`.
+
+AI Scientist v2
+---------------
+
+The source under `ai_scientist/` is vendored from Sakana AI's AI Scientist v2
+at upstream commit `96bd51617cfdbb494a9fc283af00fe090edfae48`. That component
+is governed by The AI Scientist Source Code License, Version 1.0, dated
+December 2025. The complete license text is included at
+`licenses/AI_SCIENTIST_LICENSE`.
+
+The terms, restrictions, and notice requirements in
+`licenses/AI_SCIENTIST_LICENSE` apply to the AI Scientist component and its
+applicable derivative works. The MIT license in this file does not override or
+expand those terms.

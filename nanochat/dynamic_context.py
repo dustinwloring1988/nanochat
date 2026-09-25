@@ -309,11 +309,27 @@ def fixed_context_profile() -> ContextProfile:
     )
 
 
-def resolve_context_request(requested_buckets: Any = None) -> ContextFallback:
+def resolve_context_request(
+    requested_buckets: Any = None,
+    *,
+    plan: Any = None,
+    evidence: Any = None,
+    approval: Any = None,
+) -> ContextFallback:
     if requested_buckets is None:
         requested = (FIXED_CONTEXT_TOKENS,)
     else:
         requested = _validate_bucket_sequence(requested_buckets, require_fixed=False)
+    if plan is not None and evidence is not None and approval is not None:
+        from nanochat.long_context import approved_context_profile
+
+        if requested == (2048, 8192):
+            return ContextFallback(
+                profile=approved_context_profile(plan, evidence, approval),
+                requested_buckets=requested,
+                fallback_used=False,
+                reason="explicit_activation_approved",
+            )
     if requested == (FIXED_CONTEXT_TOKENS,):
         return ContextFallback(
             profile=fixed_context_profile(),

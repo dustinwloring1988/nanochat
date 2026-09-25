@@ -94,35 +94,28 @@ def normalize_messages(raw_messages):
     if isinstance(raw_messages, str):
         try:
             raw_messages = json.loads(raw_messages)
-        except Exception:
-            return [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi"}
-            ]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("raw_messages must contain valid JSON") from exc
 
     if not isinstance(raw_messages, (list, tuple)):
-        return [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"}
-        ]
+        raise ValueError("raw_messages must be a list or tuple")
 
     messages = []
-    for item in raw_messages:
+    for index, item in enumerate(raw_messages):
         if isinstance(item, str):
             try:
                 item = json.loads(item)
-            except Exception:
-                continue
-        if isinstance(item, dict) and "role" in item:
-            if "content" not in item or item["content"] is None:
-                item["content"] = ""
-            messages.append(item)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"message {index} must contain valid JSON") from exc
+        if not isinstance(item, dict) or "role" not in item:
+            raise ValueError(f"message {index} must be an object with a role")
+        normalized = dict(item)
+        if "content" not in normalized or normalized["content"] is None:
+            normalized["content"] = ""
+        messages.append(normalized)
 
-    if len(messages) < 1:
-        return [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"}
-        ]
+    if not messages:
+        raise ValueError("raw_messages must contain at least one message")
     return messages
 
 

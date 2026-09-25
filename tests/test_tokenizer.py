@@ -6,8 +6,38 @@ Trains a tiny throwaway tokenizer in-process so the test is hermetic
 python -m pytest tests/test_tokenizer.py -v
 """
 
+import subprocess
+import sys
+
 import pytest
 from nanochat.tokenizer import RustBPETokenizer, SPECIAL_TOKENS
+from nanochat.tokenizer_corpus import get_default_pretraining_mix
+
+def test_default_tokenizer_mix_is_pretraining_only():
+    ratios = get_default_pretraining_mix()
+    assert set(ratios) == {
+        "climbmix",
+        "nemotron_v1",
+        "nemotron_v1_1",
+        "nemotron_v1_2",
+    }
+    assert sum(ratios.values()) == pytest.approx(1.0)
+    assert all(value > 0 for value in ratios.values())
+
+
+def test_tok_train_curriculum_help_is_unicode_safe():
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.tok_train_curriculum", "--help"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--mix" in result.stdout
+    assert "pretraining sources" in result.stdout
+
 
 # a small corpus is enough to exercise the BPE machinery
 CORPUS = [

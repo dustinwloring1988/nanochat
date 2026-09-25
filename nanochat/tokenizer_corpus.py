@@ -154,7 +154,7 @@ def _download_huggingface_dataset(source, num_samples_per_subset: int = 10000):
         
         except Exception as e:
             print(f"  ✗ Error downloading {subset}: {e}")
-            print(f"    Continuing with other subsets...")
+            print("    Continuing with other subsets...")
             continue
 
 
@@ -338,40 +338,23 @@ def build_mixed_tokenizer_corpus(
             f.write(doc)
             f.write('\n\n')
     
-    print(f"Corpus saved successfully!")
+    print("Corpus saved successfully!")
     
     return all_documents, output_path
 
 
 def get_default_pretraining_mix() -> Dict[str, float]:
     """
-    Get the default mixing ratios for tokenizer corpus.
-    
-    Returns recommended mix:
-    - 60% ClimbMix (general web text)
-    - 15% Nemotron v1 (STEM reasoning, math, code)
-    - 10% Nemotron v1.1 (code concepts, algorithms)
-    - 10% Nemotron v1.2 (fact-seeking, QA)
-    -  5% SFT samples (instruction-following, chat)
-    
-    Total: 100%
-    
-    Returns:
-        Dictionary of source mixing ratios
+    Get the default mixing ratios for the tokenizer corpus.
+
+    Returns a pretraining-only mix; SFT sources require a separate approved
+    manifest and are never downloaded by this default path.
     """
     return {
-        # Pretraining sources (95%)
         "climbmix": 0.60,
-        "nemotron_v1": 0.15,
-        "nemotron_v1_1": 0.10,
-        "nemotron_v1_2": 0.10,
-        
-        # SFT sources (5% total, distributed across datasets)
-        "smoltalk": 0.02,              # 2% - General instruction following
-        "nemotron_multilingual": 0.01, # 1% - Multilingual + STEM
-        "hunter_alpha": 0.005,         # 0.5% - Coding agent
-        "nemotron_swe": 0.01,          # 1% - Software engineering
-        "claude_fable": 0.005,         # 0.5% - Curated examples
+        "nemotron_v1": 0.16,
+        "nemotron_v1_1": 0.12,
+        "nemotron_v1_2": 0.12,
     }
 
 
@@ -445,4 +428,4 @@ if __name__ == "__main__":
     print("=" * 80)
     print(f"Corpus saved to: {corpus_path}")
     print(f"Total documents: {len(documents):,}")
-    print(f"Ready for tokenizer training!")
+    print("Ready for tokenizer training!")

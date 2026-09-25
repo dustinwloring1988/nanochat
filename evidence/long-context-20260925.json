@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "artifact": "experiments/long-context-20260925/long_context_evidence.json",
+  "scope": "bounded two-step local proof; no production promotion",
+  "plan": {
+    "schedule_hash": "b9561c2724ac059f5a3d35e7212aa086a81e935aa658735d446b618597eca83b",
+    "buckets": [2048, 8192],
+    "device_batch_size": 1,
+    "world_size": 1,
+    "effective_token_batch": 8192,
+    "optimization_steps": 2,
+    "token_horizon": 16384,
+    "gradient_accumulation_steps": [4, 1]
+  },
+  "resource_envelope": {
+    "vram_limit_bytes": 15032385536,
+    "safety_margin_bytes": 268435456,
+    "minimum_tokens_per_second": 1.0
+  },
+  "steps": [
+    {
+      "step": 0,
+      "sequence_length": 2048,
+      "loss": 4.916718363761902,
+      "peak_vram_bytes": 1796901376,
+      "reserved_vram_bytes": 2048917504,
+      "active_tokens_per_second": 14268.639890077027,
+      "wall_clock_seconds": 0.5741262000519782,
+      "model_forward_backward": true,
+      "loader_batch_verified": true
+    },
+    {
+      "step": 1,
+      "sequence_length": 8192,
+      "loss": 4.804396152496338,
+      "peak_vram_bytes": 6332701184,
+      "reserved_vram_bytes": 7417626624,
+      "active_tokens_per_second": 7307.252484172384,
+      "wall_clock_seconds": 1.1210779999382794,
+      "model_forward_backward": true,
+      "loader_batch_verified": true
+    }
+  ],
+  "model": {
+    "config": {
+      "sequence_len": 8192,
+      "vocab_size": 32768,
+      "n_layer": 6,
+      "n_head": 3,
+      "n_kv_head": 3,
+      "n_embd": 384,
+      "window_pattern": "SSL"
+    },
+    "config_hash": "2935639b8c1f332d5d1bf7b50a347121276cb1b977f72c39f20d5ace8af97251",
+    "dtype": "bfloat16",
+    "attention_backend": "torch-sdpa",
+    "device": "NVIDIA GeForce RTX 4060 Ti"
+  },
+  "loader": {
+    "source": "climbmix",
+    "data_hash": "9996cfaed029c8c24a4fd6fb10da5033c0d2c081388916fd1314186540e35d13",
+    "checkpoint_boundary": "resume-step-0.pt"
+  },
+  "resume": {
+    "model_max_abs_delta": 0.0,
+    "optimizer_max_abs_delta": 0.0,
+    "loader_state_equal": true,
+    "next_batch_equal": true
+  },
+  "evidence_hash": "1d32c5a1334bc62d9969e776f0461e0b19604c7ac85e561fb74b59e6c3d59da6",
+  "approval": {
+    "approval_id": "AG-LC-20260925",
+    "approved_by": "user",
+    "approved_at": "2026-09-25",
+    "plan_hash": "b9561c2724ac059f5a3d35e7212aa086a81e935aa658735d446b618597eca83b",
+    "evidence_hash": "1d32c5a1334bc62d9969e776f0461e0b19604c7ac85e561fb74b59e6c3d59da6"
+  },
+  "promotion": "not authorized"
+}

@@ -7,7 +7,8 @@ python -m pytest tests/test_tasks.py -v
 
 import numpy as np
 import pyarrow as pa
-from tasks.common import Task, TaskMixture, HubDataset, render_mc
+import pytest
+from tasks.common import HubDataset, Task, TaskMixture, normalize_messages, render_mc
 
 
 class ToyTask(Task):
@@ -23,6 +24,17 @@ class ToyTask(Task):
 
     def get_example(self, index):
         return {"i": index, "tag": self.tag}
+
+
+def test_normalize_messages_fails_closed_on_malformed_records():
+    with pytest.raises(ValueError, match="valid JSON"):
+        normalize_messages("not-json")
+    with pytest.raises(ValueError, match="list or tuple"):
+        normalize_messages({"role": "user", "content": "hello"})
+    with pytest.raises(ValueError, match="with a role"):
+        normalize_messages([{"content": "missing role"}])
+    with pytest.raises(ValueError, match="at least one"):
+        normalize_messages([])
 
 
 def test_task_full():

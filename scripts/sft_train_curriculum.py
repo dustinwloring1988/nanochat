@@ -31,10 +31,20 @@ from nanochat.common import (
 )
 from nanochat.tokenizer import get_token_bytes
 from nanochat.loss_eval import evaluate_bpb
-from nanochat.research_results import tokenizer_hash, write_json_atomic
+from nanochat.research_results import (
+    runtime_metadata,
+    tokenizer_hash,
+    write_json_atomic,
+)
 from nanochat.sft_manifest import (
     resolve_run_local_path,
     validate_jsonl_dataset_manifest,
+)
+from nanochat.sft_quality import (
+    SFTQualityError,
+    build_sft_quality_result,
+    validate_sft_quality_plan,
+    write_sft_quality_result,
 )
 from nanochat.sft_runtime import (
     SFT_CONTEXT_TOKENS,
@@ -54,6 +64,7 @@ def parse_args():
     parser.add_argument("--run-id", required=True, help="safe run identifier")
     parser.add_argument("--dataset-manifest", required=True)
     parser.add_argument("--eval-manifest", default=None)
+    parser.add_argument("--quality-plan", default=None)
     parser.add_argument("--config", default=None)
     parser.add_argument("--model-tag", default=None)
     parser.add_argument("--model-step", type=int, default=None)
@@ -107,8 +118,17 @@ def resolve_run_root(path):
     return resolve_run_local_path(candidate, candidate)
 
 
-def build_run_manifest(args, config, manifest, run_dir, budget, tokenizer_digest):
-    return {
+def build_run_manifest(
+    args,
+    config,
+    manifest,
+    run_dir,
+    budget,
+    tokenizer_digest,
+    quality_plan=None,
+    eval_manifest=None,
+):
+    payload = {
         "sft_run_schema_version": 1,
         "run_id": args.run_id,
         "run_dir": str(run_dir),
@@ -136,6 +156,17 @@ def build_run_manifest(args, config, manifest, run_dir, budget, tokenizer_digest
         "approval": "AG-1 fixed-context local scope",
         "promotion": "not authorized",
     }
+    if quality_plan is not None:
+        payload["quality_plan_hash"] = quality_plan.plan_hash
+        payload["eval_manifest"] = str(quality_plan.eval_manifest.manifest_path)
+        payload["eval_manifest_hash"] = quality_plan.eval_manifest.manifest_hash
+        payload["quality_budget"] = quality_plan.budget
+        payload["quality_thresholds"] = quality_plan.thresholds
+        payload["disjointness"] = quality_plan.disjointness.to_dict()
+    elif eval_manifest is not None:
+        payload["eval_manifest"] = str(eval_manifest.manifest_path)
+        payload["eval_manifest_hash"] = eval_manifest.manifest_hash
+    return payload
 
 
 def save_checkpoint(
@@ -179,6 +210,42 @@ def save_checkpoint(
     return transaction
 
 
+def evaluate_heldout(
+    model,
+    manifest,
+    tokenizer,
+    *,
+    batch_size,
+    device,
+    rank,
+    world_size,
+    seed,
+    eval_tokens,
+):
+    loader = SFTConversationBatchLoader(
+        manifest,
+        tokenizer,
+        batch_size=batch_size,
+        device=device,
+        rank=rank,
+        world_size=world_size,
+        seed=seed,
+        sequence_length=SFT_CONTEXT_TOKENS,
+    )
+    eval_batches = eval_tokens // (batch_size * SFT_CONTEXT_TOKENS * world_size)
+    if (
+        eval_batches <= 0
+        or eval_batches * batch_size * SFT_CONTEXT_TOKENS * world_size != eval_tokens
+    ):
+        raise SFTLoaderError("eval token budget must divide the held-out batch")
+    token_bytes = get_token_bytes(device=device)
+    batches = ((item.inputs, item.targets) for item in loader)
+    value = evaluate_bpb(model, batches, eval_batches, token_bytes)
+    if not isinstance(value, (int, float)) or not torch.isfinite(torch.tensor(value)):
+        raise SFTLoaderError("held-out evaluation did not produce a finite BPB")
+    return float(value), eval_batches
+
+
 def main():
     args = parse_args()
     validate_fixed_context(args.max_seq_len)
@@ -195,10 +262,32 @@ def main():
     manifest_path = resolve_run_path(args.dataset_manifest, run_root)
     manifest = validate_jsonl_dataset_manifest(manifest_path, run_root=run_root)
     val_manifest = None
+    quality_plan = None
     if args.eval_manifest is not None:
         val_manifest = validate_jsonl_dataset_manifest(
             resolve_run_path(args.eval_manifest, run_root), run_root=run_root
         )
+        if args.quality_plan is None:
+            raise SFTLoaderError(
+                "a separate eval-manifest requires an approved quality-plan"
+            )
+        try:
+            quality_plan = validate_sft_quality_plan(
+                resolve_run_path(args.quality_plan, run_root),
+                run_root=run_root,
+                train_manifest=manifest,
+                eval_manifest=val_manifest,
+            )
+        except SFTQualityError as exc:
+            raise SFTLoaderError(str(exc)) from exc
+        if quality_plan.run_id != args.run_id:
+            raise SFTLoaderError("quality-plan run-id does not match --run-id")
+        if args.resume_from_step != -1:
+            raise SFTLoaderError(
+                "quality runs require a fresh run; resume cannot redefine the baseline"
+            )
+    elif args.quality_plan is not None:
+        raise SFTLoaderError("quality-plan requires --eval-manifest")
     if args.eval_every and val_manifest is None:
         raise SFTLoaderError("eval-every requires a separate eval-manifest")
 
@@ -223,6 +312,21 @@ def main():
         sequence_length=args.max_seq_len,
         total_batch_size=args.total_batch_size,
     )
+    if quality_plan is not None:
+        quality_budget = quality_plan.budget
+        expected_quality_values = {
+            "context_length": SFT_CONTEXT_TOKENS,
+            "device_batch_size": budget.device_batch_size,
+            "world_size": budget.world_size,
+            "gradient_accumulation_steps": budget.gradient_accumulation_steps,
+            "effective_tokens": budget.effective_tokens,
+            "optimization_steps": args.num_iterations,
+        }
+        for field, expected in expected_quality_values.items():
+            if quality_budget.get(field) != expected:
+                raise SFTLoaderError(
+                    f"quality-plan {field} does not match the requested run"
+                )
 
     base_dir = Path(
         os.environ.get("NANOCHAT_BASE_DIR", str(Path.home() / ".cache" / "nanochat"))
@@ -264,18 +368,25 @@ def main():
         seed=args.seed,
         sequence_length=args.max_seq_len,
     )
-    val_loader = None
-    if val_manifest is not None:
-        val_loader = SFTConversationBatchLoader(
+
+    def make_val_loader():
+        if val_manifest is None:
+            return None
+        return SFTConversationBatchLoader(
             val_manifest,
             tokenizer,
-            batch_size=args.device_batch_size,
+            batch_size=(
+                quality_plan.budget["eval_batch_size"]
+                if quality_plan is not None
+                else args.device_batch_size
+            ),
             device=device,
             rank=rank,
             world_size=world_size,
             seed=args.seed + 1,
             sequence_length=args.max_seq_len,
         )
+
     checkpoint_root = resolve_run_path("checkpoints", run_root)
     checkpoint_root.mkdir(parents=True, exist_ok=True)
     step = 0
@@ -305,18 +416,57 @@ def main():
         )
         step = args.resume_from_step
     run_manifest = build_run_manifest(
-        args, config, manifest, run_root, budget, tokenizer_digest
+        args,
+        config,
+        manifest,
+        run_root,
+        budget,
+        tokenizer_digest,
+        quality_plan=quality_plan,
+        eval_manifest=val_manifest,
     )
     if rank == 0:
         write_json_atomic(run_root / "run_manifest.json", run_manifest)
     batch = next(loader)
     token_bytes = get_token_bytes(device=device)
+    baseline_bpb = None
+    baseline_eval_batches = None
+    if quality_plan is not None:
+        orig_model.eval()
+        with torch.no_grad():
+            baseline_bpb, baseline_eval_batches = evaluate_heldout(
+                orig_model,
+                val_manifest,
+                tokenizer,
+                batch_size=quality_plan.budget["eval_batch_size"],
+                device=device,
+                rank=rank,
+                world_size=world_size,
+                seed=args.seed + 1,
+                eval_tokens=quality_plan.budget["eval_tokens"],
+            )
+        orig_model.train()
+        print0(f"baseline held-out bpb: {baseline_bpb:.6f}")
     for _ in range(step, args.num_iterations):
-        if args.eval_every and _ % args.eval_every == 0 and val_loader is not None:
+        if args.eval_every and _ % args.eval_every == 0 and val_manifest is not None:
             model.eval()
             with torch.no_grad():
-                val_batches = ((item.inputs, item.targets) for item in val_loader)
-                val_bpb = evaluate_bpb(model, val_batches, 1, token_bytes)
+                if quality_plan is not None:
+                    val_bpb, _ = evaluate_heldout(
+                        orig_model,
+                        val_manifest,
+                        tokenizer,
+                        batch_size=quality_plan.budget["eval_batch_size"],
+                        device=device,
+                        rank=rank,
+                        world_size=world_size,
+                        seed=args.seed + 1,
+                        eval_tokens=quality_plan.budget["eval_tokens"],
+                    )
+                else:
+                    val_loader = make_val_loader()
+                    val_batches = ((item.inputs, item.targets) for item in val_loader)
+                    val_bpb = evaluate_bpb(orig_model, val_batches, 1, token_bytes)
             print0(f"step {_} | validation bpb: {val_bpb:.6f}")
             model.train()
         started = time.perf_counter()
@@ -358,6 +508,38 @@ def main():
                 metadata,
                 rank,
                 world_size,
+            )
+    quality_result = None
+    if quality_plan is not None:
+        orig_model.eval()
+        with torch.no_grad():
+            final_bpb, final_eval_batches = evaluate_heldout(
+                orig_model,
+                val_manifest,
+                tokenizer,
+                batch_size=quality_plan.budget["eval_batch_size"],
+                device=device,
+                rank=rank,
+                world_size=world_size,
+                seed=args.seed + 1,
+                eval_tokens=quality_plan.budget["eval_tokens"],
+            )
+        quality_result = build_sft_quality_result(
+            quality_plan,
+            baseline_bpb=baseline_bpb,
+            final_bpb=final_bpb,
+            eval_batches=final_eval_batches,
+            tokenizer_hash=tokenizer_digest,
+            model_tag=args.model_tag,
+            model_step=args.num_iterations,
+            runtime=runtime_metadata(),
+        )
+        if rank == 0:
+            write_sft_quality_result(run_root / "quality_result.json", quality_result)
+            print0(
+                "quality decision: "
+                f"{quality_result['decision']['status']} "
+                f"(final held-out bpb: {final_bpb:.6f})"
             )
     if rank == 0:
         print0(f"SFT fixed-context run complete: {run_root}")

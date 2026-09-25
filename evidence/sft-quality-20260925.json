@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "run_id": "sft-quality-20260925",
+  "artifact": "experiments/sft-quality-20260925/quality_result.json",
+  "dataset": {
+    "repo": "HuggingFaceTB/smol-smoltalk",
+    "revision": "f73fe857d519ff6ac5af2ea67c4d3834da7b8bcc",
+    "license": "Apache-2.0",
+    "split_method": "pinned source train/test splits; no cross-split record reuse",
+    "train_records": 64,
+    "heldout_records": 32,
+    "overlap_count": 0
+  },
+  "manifests": {
+    "train_manifest_hash": "ed96567df02202d0da96659bdd551bb90daf0d222672023a48a292842f42470b",
+    "heldout_manifest_hash": "27a756ab23872d7b00a41d22f1da1341d667bae58c6f32c8d42e99de3cc11204",
+    "train_file_sha256": "2fd9869b9441603558340929363e91b111e3abd17fabcfc92ed6e514c499a2c2",
+    "heldout_file_sha256": "799d4290705febe54a3170993c6f075242034740f8027bd9e077a3f57525e78b"
+  },
+  "plan": {
+    "quality_plan_hash": "375c7d49d87e4d4f0ca52eac27d4d4f2effa04694eb3fd2a4360137506d7fd17",
+    "context_length": 2048,
+    "device_batch_size": 1,
+    "world_size": 1,
+    "gradient_accumulation_steps": 4,
+    "effective_tokens": 8192,
+    "optimization_steps": 16,
+    "train_tokens": 131072,
+    "eval_tokens": 65536,
+    "thresholds": {
+      "pass_max_bpb": 1.6,
+      "stop_min_bpb": 2.0,
+      "min_improvement": 0.01
+    }
+  },
+  "evaluation": {
+    "metric": "heldout_bpb",
+    "baseline_bpb": 1.6210418970579679,
+    "final_bpb": 1.8486887030868757,
+    "improvement_bpb": -0.22764680602890786,
+    "decision": "inconclusive",
+    "quality_claim": false,
+    "clean_final_checkpoint": true
+  },
+  "runtime": {
+    "device": "NVIDIA GeForce RTX 4060 Ti",
+    "torch": "2.14.0+cu126",
+    "cuda": "12.6",
+    "python": "3.12.10"
+  },
+  "promotion": "not authorized"
+}

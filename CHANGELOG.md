@@ -169,6 +169,6 @@ Forked from [karpathy/nanochat](https://github.com/karpathy/nanochat) and implem
 
 **Forked from:** [karpathy/nanochat](https://github.com/karpathy/nanochat)  
 **Original commit:** [Latest as of 2026-09-19]  
-**License:** MIT
+**License:** Multi-license; see `LICENSE`, `licenses/NANOCHAT_LICENSE`, and `licenses/AI_SCIENTIST_LICENSE`
 
-This changelog documents modifications and additions made to implement curriculum-based training with multi-source datasets. The original nanochat codebase remains fully functional and backward compatible.
+This changelog documents modifications and additions made to implement curriculum-based training with multi-source datasets. The original nanochat codebase remains fully functional and backward compatible. The vendored `ai_scientist/` component remains under its separate upstream license.
