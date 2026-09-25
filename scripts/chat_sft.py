@@ -6,7 +6,9 @@ import argparse
 def main():
     parser = argparse.ArgumentParser(description="Disabled legacy SFT entry point")
     parser.error(
-        "scripts/chat_sft.py is disabled because it writes to the trusted cache; use scripts.sft_train_curriculum.py with --run-dir and --dataset-manifest"
+        "scripts/chat_sft.py is disabled because it writes to the trusted cache. "
+        "The default workflows are pretraining-only. For the separately approved "
+        "fixed-context runtime probe, run: python -m scripts.sft_smoke --help"
     )
 
 

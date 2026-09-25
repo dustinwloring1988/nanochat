@@ -1,5 +1,5 @@
 #!/bin/bash
-# Curriculum training optimized for single NVIDIA RTX 4060Ti (16GB VRAM)
+# Curriculum pretraining optimized for single NVIDIA RTX 4060Ti (16GB VRAM)
 # 
 # Model: depth=6 (very small for fast iteration testing)
 # Training: Multi-stage curriculum with context length scheduling
@@ -129,8 +129,9 @@ echo "Model saved to: $NANOCHAT_BASE_DIR/base_checkpoints/d6_curriculum_4060ti/"
 echo ""
 echo "Next steps:"
 echo "  1. Evaluate: python -m scripts.base_eval --model-tag d6_curriculum_4060ti"
-echo "  2. Chat: python -m scripts.chat_cli"
-echo "  3. SFT: python -m scripts.sft_train_curriculum"
+echo "  2. SFT is intentionally not run by this pretraining workflow."
+echo "  3. For the separately approved fixed-context runtime probe, see:"
+echo "     python -m scripts.sft_smoke --help"
 echo ""
 echo "Performance notes for depth=6:"
 echo "  - This is a tiny model for testing the pipeline"

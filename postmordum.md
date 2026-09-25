@@ -4,6 +4,7 @@
 - **Repository:** `F:\UserData\git-repos\nanochat - Copy`
 - **Integration status:** Implemented; code hardening, live one-node validation, and fixed-context multi-stage resume proof complete; dynamic/multi-seed expansion pending
 - **Open-work tracker:** `plan.md` remaining-work checklist
+- **Change control:** The user explicitly authorized committing and pushing the reviewed change set; no safety-gated research action is included.
 
 ## Executive summary
 
@@ -120,6 +121,67 @@ The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux c
 - The Linux image was rebuilt so the authoritative suite included the new files. No uploads or cache promotion were performed. The user explicitly authorized the subsequent commit and push.
 - The reviewed implementation and handoff commits were pushed to `origin/master` on 2026-09-25.
 
+### Workflow usability slice — 2026-09-25
+
+- Audited the default Docker and reference shell workflows. They previously invoked the disabled legacy SFT entry point or passed the unapproved three-stage 8K–32K SFT configuration.
+- Changed `docker/init_training.sh`, `runs/speedrun.sh`, `runs/runcpu.sh`, and `runs/curriculum_4060ti.sh` to pretraining-only workflows. They no longer create or reference the SFT namespace and now direct operators to `python -m scripts.sft_smoke --help`.
+- Kept `scripts/chat_sft.py` fail-closed and improved its error to identify the pretraining-only default and the separately approved bounded probe.
+- Updated the README quick start, speedrun instructions, and file map to remove automatic SFT/chat claims and identify the probe as a runtime check rather than quality evidence.
+- Added static workflow-contract tests covering the fail-closed handoff, stale executable commands, trusted SFT namespace references, and README claims.
+- This slice performed no SFT training, production data preparation, provider call, trace capture, dynamic-context activation, generated-code execution, checkpoint promotion, or trusted-cache write. It makes no SFT quality claim.
+
+#### Reproducible evidence for this slice
+
+| Command | Result |
+| --- | --- |
+| `python -m pytest -q --ignore=tests/test_execution.py` before edits | `108 passed, 18 skipped in 47.52s` |
+| `python -m pytest -q tests/test_sft_entrypoint.py tests/test_sft_runtime.py` | `18 passed in 3.48s` |
+| `python -m pytest -q tests/test_sft_entrypoint.py tests/test_sft_runtime.py tests/test_attention_fallback.py` | `24 passed, 10 skipped in 6.64s` on native Windows |
+| `python -m pytest -q --ignore=tests/test_execution.py` after edits | `111 passed, 18 skipped in 46.91s` |
+| `docker compose --profile ai-scientist run --rm ai-scientist python -m pytest -q -rs` | `178 passed, 1 skipped in 61.56s` |
+| `python -m ruff check nanochat/flash_attention.py tests/test_attention_fallback.py scripts/chat_sft.py tests/test_sft_entrypoint.py` | Passed |
+| `python -m ruff format --check scripts/chat_sft.py tests/test_sft_entrypoint.py` | Passed for workflow files; attention files retain pre-existing formatter drift |
+| `docker compose --profile ai-scientist run --rm ai-scientist python -m black --check scripts/chat_sft.py tests/test_sft_entrypoint.py` | `2 files would be left unchanged` |
+| Tracked-Python AST parse and `python -m compileall -q nanochat scripts ai_scientist tests` | `106` tracked files parsed; compilation passed; existing `perform_icbinb_writeup.py` escape warnings were non-fatal |
+| `python -m scripts.sft_smoke --help` | Passed and exposed only the bounded probe inputs |
+| `python -m scripts.chat_sft` | Expected exit `2`; emitted the fail-closed pretraining/probe handoff |
+| `git diff --check` | Passed |
+| `bash -n docker/init_training.sh runs/speedrun.sh runs/runcpu.sh runs/curriculum_4060ti.sh` | Not completed: Windows `bash.exe` could not attach its WSL virtual disk |
+
+The system host interpreter has Ruff but not Black or Git Bash; the synchronized `.venv` now has Black, and no shell-syntax pass is claimed. No new run artifact was created by this documentation/workflow slice. The changed files are `README.md`, `docker/init_training.sh`, `runs/speedrun.sh`, `runs/runcpu.sh`, `runs/curriculum_4060ti.sh`, `scripts/chat_sft.py`, and `tests/test_sft_entrypoint.py`.
+
+### FA3 Docker discovery and validation — 2026-09-25
+
+- The installed `kernels==0.17.1` API requires an explicit kernel version or revision. The existing loader called `has_kernel()` and `get_kernel()` without one, so Docker reported `HAS_FA3=False` despite a compatible RTX 4060 Ti.
+- `kernels-community/flash-attn3` version `1` is discoverable from the AI Scientist image on the RTX 4060 Ti (`sm89`). A tiny synthetic bfloat16 causal call returned shape `(1, 32, 2, 16)`, finite values, and maximum absolute value `2.171875`.
+- Added `FA3_KERNEL_VERSION = 1` and passed it to both kernel discovery and loading in `nanochat/flash_attention.py`; added a mocked unit test for the explicit API-version contract.
+- Rebuilt the local `nanochat-ai-scientist:latest` image. The complete Docker attention suite passed `16/16` with no FA3 skips, and the authoritative Linux suite passed `178` tests with only the intentional Windows-ACL test skipped in Linux.
+- The native Windows ACL test was also run separately and passed `1/1`. Host FA3 comparisons remain skipped because the host environment does not discover the kernel; the Linux GPU result is authoritative for this probe.
+- This was a synthetic attention/runtime check only. It did not run model training, production data, SFT quality evaluation, provider calls, trace capture, dynamic-context activation, generated code, promotion, or trusted-cache writes. The kernel download was confined to the container's temporary filesystem; no persistent training artifact was created.
+
+| Command | Result |
+| --- | --- |
+| `docker compose --profile ai-scientist run --rm ai-scientist python -m pytest -q -rs tests/test_attention_fallback.py` | `16 passed, 0 skipped in 11.88s` |
+| Docker `HAS_FA3`/`USE_FA3` diagnostic with a `(1, 32, 2, 16)` bfloat16 tensor | `HAS_FA3=True`, `USE_FA3=True`, finite output |
+
+### Host test dependency slice — 2026-09-25
+
+- Added the AI Scientist test/runtime imports used by the provider, workspace, trace, and formatting tests to the root `dev` dependency group, including `openai`, `jsonschema`, `omegaconf`, `pyyaml`, `backoff`, `black`, `coolname`, `dataclasses-json`, `funcy`, `genson`, `humanize`, `igraph`, `rich`, and `shutup`.
+- Raised the project minimum for `kernels` to `0.17.1`, matching the API used by the fixed FA3 loader, and regenerated `uv.lock`.
+- `uv sync --group dev` now provides a reproducible host test environment. The previously skipped provider/workspace/trace set passes `53` tests; only the two POSIX-only assertions remain skipped on Windows.
+- A separate `.venv-gpu` was created for CUDA testing. It detects the RTX 4060 Ti, but native Windows lacks a working Triton runtime, so its four optimizer tests fail before assertions; the Linux container remains authoritative for that path.
+- Added `.venv-*/` to `.dockerignore`; the final Docker build context was `30.72 kB` rather than the approximately `5 GB` local GPU environment.
+- These tests use fakes, local stubs, and synthetic tensors only. No live provider call, training run, generated execution, cache write, promotion, or gated research action was performed.
+
+| Command | Result |
+| --- | --- |
+| `uv lock` and `uv sync --group dev` | Lock resolved; host dev environment synchronized |
+| `.venv\Scripts\python.exe -m pytest -q -rs tests/test_ai_scientist_provider.py tests/test_ai_scientist_workspace.py tests/test_ai_scientist_trace.py` | `53 passed, 2 skipped in 70.85s` |
+| `.venv\Scripts\python.exe -m pytest -q -rs --ignore=tests/test_execution.py` | `149 passed, 16 skipped in 80.67s` |
+| `python -m pytest -q --ignore=tests/test_execution.py` using the pre-existing system interpreter | `111 passed, 18 skipped in 47.97s` |
+| `docker compose --profile ai-scientist build ai-scientist` | Passed; context `30.72 kB` |
+| `docker compose --profile ai-scientist run --rm ai-scientist python -m pytest -q -rs` | `178 passed, 1 skipped in 60.59s` |
+
 ## Verification evidence
 
 The following table records the verified baseline plus the completed regression, live one-node runs, and fixed-context multi-stage proof. The unresolved items are security/architecture and explicitly gated expansion, not known test regressions:
@@ -140,11 +202,19 @@ The following table records the verified baseline plus the completed regression,
 | SFT runtime and entrypoint tests | 16 passed on host; fixed-context implementation and legacy-path coverage |
 | Phase 1 focused Linux suite | 66 passed, 1 Windows-ACL-only skip; SFT/trace/dynamic coverage |
 | Trace tests | 15 passed, 1 POSIX-only assertion skipped on Windows; leak/retry/fallback/path coverage |
-| Complete Linux-container suite after implementation | 165 passed, 11 skipped |
-| Host supported suite after implementation | 108 passed, 18 skipped |
-| Targeted Black check for changed Python files | Passed after formatting |
+| Complete Linux-container suite after implementation | 178 passed, 1 skipped; the remaining skip is the Windows-only ACL assertion |
+| Host supported suite after implementation | 111 passed, 18 skipped |
+| Synchronized CPU dev host suite | 149 passed, 16 skipped; two POSIX assertions, ten host FA3 comparisons, and four CPU-venv CUDA optimizer checks remain skipped |
+| Focused host AI Scientist tests | 53 passed, 2 skipped; only POSIX assertions remain skipped |
+| Host GPU dev environment | CUDA detected; four optimizer tests blocked by missing native Windows Triton |
+| Host dependency lock | `uv.lock` synchronized; `kernels>=0.17.1` |
+| Docker build context | `.venv-*/` excluded; final context `30.72 kB` |
+| Targeted Black check for workflow Python files | Passed in the AI Scientist image |
 | Targeted Ruff check for changed Python files | Passed; unrelated legacy findings remain outside scope |
-| AST compilation check | 105 Python files parsed successfully |
+| Targeted formatter check for attention files | Not clean because `nanochat/flash_attention.py` and `tests/test_attention_fallback.py` retain pre-existing formatter drift; no unrelated reformatting was applied |
+| AST compilation check | 106 tracked Python files parsed successfully; existing non-fatal escape warnings remain in `perform_icbinb_writeup.py` |
+| FA3 kernel discovery and attention suite | Docker RTX 4060 Ti sm89: kernel API v1 resolved, synthetic probe finite, `16 passed, 0 skipped` |
+| Native Windows ACL trace test | `1 passed` |
 | Full-tree Black check | Not clean: 45 unchanged legacy files would be reformatted; no unrelated reformatting applied |
 | Real CPU SFT resume probe | Passed; AdamW fallback for missing Windows C compiler, model delta 0, next batch equal |
 | Real GPU SFT resume probe | Passed; RTX 4060 Ti, nanochat optimizer, model delta 0, next batch equal, peak VRAM 1,235,122,176 bytes, 14.251025s |
@@ -291,6 +361,9 @@ The active work checklist and remaining gates are in `plan.md`. The most relevan
 - `nanochat/dynamic_context.py`
 - `nanochat/sft_manifest.py`
 - `nanochat/sft_runtime.py`
+- `nanochat/flash_attention.py`
+- `pyproject.toml` and `uv.lock`
+- `.dockerignore`
 - `ai_scientist/trace_writer.py`
 - `scripts/sft_train_curriculum.py`
 - `scripts/sft_smoke.py`
@@ -299,6 +372,7 @@ The active work checklist and remaining gates are in `plan.md`. The most relevan
 - `tests/test_dynamic_context_gate.py`
 - `tests/test_sft_runtime.py`
 - `tests/test_sft_entrypoint.py`
+- `tests/test_attention_fallback.py`
 - `tests/test_ai_scientist_trace.py`
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-sft-probe-20260925` (bounded CPU SFT probe artifacts)
 - `experiments/sft-probe-gpu-20260925-v2` (bounded GPU SFT probe artifacts; untrusted and run-local)

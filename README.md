@@ -12,26 +12,30 @@ For questions about the repo, I recommend either using [DeepWiki](https://deepwi
 The fastest way to get started is using Docker (no local Python setup required):
 
 ```bash
-# Start automated training pipeline
+# Start the pretraining pipeline
 docker-compose up nanochat-train-auto
 ```
 
 This single command will:
 1. Build the Docker image (first time: ~5-10 min)
 2. Train the tokenizer on mixed corpus (~30-45 min)
-3. Download datasets (~10-20 min)  
+3. Download datasets (~10-20 min)
 4. Run 4-stage curriculum pretraining (~2-4 hours for depth=6)
-5. Run 3-stage SFT curriculum with 5 datasets (~30-60 min)
 
-**Total time: ~4-6 hours unattended**
+The pipeline is pretraining-only. SFT is intentionally not started, and the
+legacy SFT entry point is disabled. Production SFT requires a separately
+approved data and quality plan.
 
-After training completes, chat with your model:
+After pretraining completes, evaluate the base model:
 
 ```bash
-docker-compose run --rm nanochat-train bash -c "source .venv/bin/activate && python -m scripts.chat_cli"
+docker-compose run --rm nanochat-train bash -c "source .venv/bin/activate && python -m scripts.base_eval"
 ```
 
-Your trained models are saved to `./data/base_checkpoints/` and `./data/sft_checkpoints/`, with datasets in `./data/` (all persisted between runs).
+Your base model is saved to `./data/base_checkpoints/`, with datasets in
+`./data/` (all persisted between runs). For the separately approved
+fixed-context runtime/resume probe, which is not a quality run, use
+`python -m scripts.sft_smoke --help` for its required inputs.
 
 ### Docker Quick Reference
 
@@ -143,38 +147,15 @@ For development (adds pytest, matplotlib, ipykernel, transformers, etc.):
 uv sync --extra gpu --group dev
 ```
 
-### Reproduce and talk to GPT-2
+### Reproduce a GPT-2 grade base model
 
-The most fun you can have is to train your own GPT-2 and talk to it. The entire pipeline to do so is contained in the single file [runs/speedrun.sh](runs/speedrun.sh), which is designed to be run on an 8XH100 GPU node. Boot up a new 8XH100 GPU box from your favorite provider (e.g. I use and like [Lambda](https://lambda.ai/service/gpu-cloud)), and kick off the training script:
+The pretraining pipeline is contained in the single file [runs/speedrun.sh](runs/speedrun.sh), which is designed to be run on an 8XH100 GPU node. Boot up a new 8XH100 GPU box from your favorite provider (e.g. I use and like [Lambda](https://lambda.ai/service/gpu-cloud)), and kick off the training script:
 
 ```bash
 bash runs/speedrun.sh
 ```
 
-You may wish to do so in a screen session as this will take ~1.5 hours to run. Once it's done, you can talk to your model over the CLI. Make sure again that your local uv virtual environment is active (run `source .venv/bin/activate`), and chat:
-
-```bash
-python -m scripts.chat_cli
-```
-
-Get it to write stories or poems. Ask it to tell you who you are to see a hallucination. Ask it why the sky is blue. Or why it's green. The speedrun is a 4e19 FLOPs capability model so it's a bit like talking to a kindergartener :). An example conversation with a speedrun model:
-
-> **User:** Hello whats up?
->
-> **Assistant:** Hello! How can I help you today?
->
-> **User:** Why is the sky blue?
->
-> **Assistant:** The sky is blue due to an optical illusion called the Rayleigh Scattering of Light, which occurs when sunlight passes through tiny particles in the air. These particles are made up of tiny blue and violet particles that cause the light to bend in a particular way.
->
-> **User:** That's cool. Write a poem about it.
->
-> **Assistant:** In the twilight's glow, the sky is blue,<br>
-> A canvas of shimmering blue, where skies unfold,<br>
-> A world of blue, where blue and more blue,<br>
-> Are woven together in a tapestry so fine,<br>
-> Where every hue seems to sing a story.<br>
-> ...
+You may wish to do so in a screen session as this will take ~1.5 hours to run. This workflow trains and evaluates a base model only. It does not produce a chat model; SFT and chat workflows remain unavailable until separately approved. The separately approved fixed-context runtime/resume probe is available through `python -m scripts.sft_smoke --help`; it is not a quality evaluation.
 
 A few more notes:
 
@@ -230,7 +211,7 @@ NANOCHAT_DTYPE=bfloat16 torchrun --nproc_per_node=8 -m scripts.base_train  # for
 
 How it works: model weights are stored in fp32 (for optimizer precision), but our custom `Linear` layer casts them to `COMPUTE_DTYPE` during the forward pass. Embeddings are stored directly in `COMPUTE_DTYPE` to save memory. This gives us the same mixed-precision benefit as autocast but with full explicit control over what runs in which precision.
 
-Note: `float16` training automatically enables a `GradScaler` in `base_train.py` to prevent gradient underflow. SFT supports this too but RL currently does not. Inference in fp16 works fine everywhere.
+Note: `float16` pretraining automatically enables a `GradScaler` in `base_train.py` to prevent gradient underflow. The separately approved fixed-context SFT runtime probe has its own bounded settings; RL currently does not support fp16. Inference in fp16 works fine everywhere.
 
 ## Guides
 
@@ -275,7 +256,9 @@ I've published a number of guides that might contain helpful information, most r
 │   ├── chat_cli.py                 # Chat model: talk to over CLI
 │   ├── chat_eval.py                # Chat model: eval tasks
 │   ├── chat_rl.py                  # Chat model: reinforcement learning
-│   ├── chat_sft.py                 # Chat model: train SFT
+│   ├── chat_sft.py                 # Disabled legacy SFT entry point
+│   ├── sft_smoke.py                # Bounded fixed-context runtime probe
+│   ├── sft_train_curriculum.py     # Fixed-context, run-local SFT trainer
 │   ├── infer_bench.py              # Inference: latency/throughput/VRAM bench
 │   ├── tok_eval.py                 # Tokenizer: evaluate compression rate
 │   └── tok_train.py                # Tokenizer: train it

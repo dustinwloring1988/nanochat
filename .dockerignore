@@ -47,6 +47,7 @@ htmlcov/
 .env*
 !.env.example
 .venv/
+.venv-*/
 .venv-ai-scientist/
 venv/
 ENV/

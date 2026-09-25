@@ -44,15 +44,6 @@ python -m scripts.base_train \
     --run=$WANDB_RUN
 python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
 
-# SFT (~10 minutes on my MacBook Pro M3 Max)
-python -m scripts.chat_sft \
-    --eval-every=200 \
-    --eval-tokens=524288 \
-    --num-iterations=1500 \
-    --run=$WANDB_RUN
-
-# Chat with the model over CLI
-# The model should be able to say that it is Paris.
-# It might even know that the color of the sky is blue.
-# Sometimes the model likes it if you first say Hi before you ask it questions.
-# python -m scripts.chat_cli -p "What is the capital of France?"
+echo "SFT is not run by this CPU pretraining example."
+echo "For the separately approved fixed-context runtime probe, see:"
+echo "  python -m scripts.sft_smoke --help"

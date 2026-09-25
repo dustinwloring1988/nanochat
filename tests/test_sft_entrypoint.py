@@ -14,6 +14,8 @@ from nanochat.sft_runtime import (
     build_effective_token_budget,
 )
 
+ROOT = Path(__file__).parents[1]
+
 
 class ManifestStub:
     manifest_path = Path("dataset-manifest.json")
@@ -26,7 +28,7 @@ def test_entrypoint_accepts_only_fixed_single_stage_config(tmp_path):
 
     long_config = tmp_path / "long.yaml"
     long_config.write_text(
-        "stages:\n" "  - name: long\n" "    context_range: [8192, 8192]\n",
+        "stages:\n  - name: long\n    context_range: [8192, 8192]\n",
         encoding="utf-8",
     )
     with pytest.raises(SFTLoaderError, match="fixed at 2048"):
@@ -82,8 +84,39 @@ def test_entrypoint_run_manifest_contains_fixed_budget_and_hashes(tmp_path):
     assert "OPENAI_API_KEY" not in json.dumps(manifest)
 
 
-def test_legacy_chat_sft_entrypoint_is_disabled():
+def test_legacy_chat_sft_entrypoint_is_disabled(capsys):
     from scripts.chat_sft import main
 
     with pytest.raises(SystemExit):
         main()
+    message = capsys.readouterr().err
+    assert "pretraining-only" in message
+    assert "python -m scripts.sft_smoke --help" in message
+
+
+def test_default_workflows_do_not_invoke_unapproved_sft():
+    workflow_paths = (
+        "docker/init_training.sh",
+        "runs/speedrun.sh",
+        "runs/runcpu.sh",
+        "runs/curriculum_4060ti.sh",
+    )
+    forbidden = (
+        "-m scripts.chat_sft",
+        "-m scripts.sft_train_curriculum",
+        "config/sft_curriculum.yaml",
+        "sft_checkpoints",
+    )
+    for relative_path in workflow_paths:
+        text = (ROOT / relative_path).read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in text, relative_path
+        assert "python -m scripts.sft_smoke --help" in text
+
+
+def test_readme_quick_start_is_pretraining_only():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "pretraining-only" in text
+    assert "Run 3-stage SFT curriculum" not in text
+    assert "./data/sft_checkpoints/" not in text
+    assert "python -m scripts.sft_smoke --help" in text

@@ -7,12 +7,15 @@ Note on test structure:
     Tests are split into two classes due to dtype/device constraints:
 
     1. TestFA3VsSDPA: Comparison tests that run both FA3 and SDPA on the same inputs
-       and verify they produce identical results. These require a compatible GPU (FA3 only
-       works on sm80 and sm90) and use bfloat16 (FA3 doesn't support float32).
+       and verify they produce identical results. These require a compatible GPU and use
+       bfloat16 (FA3 doesn't support float32).
 
     2. TestSDPAOnly: Tests that only exercise the SDPA fallback path. These can run
        on any device (CUDA, CPU, MPS) with the appropriate dtype for that device.
 """
+import sys
+from types import SimpleNamespace
+
 import torch
 import pytest
 import nanochat.flash_attention as fa_module
@@ -34,6 +37,36 @@ def run_both_impls(fn):
     out_sdpa = fn()
     set_impl(None)  # reset
     return out_fa3, out_sdpa
+
+
+def test_kernel_discovery_uses_explicit_api_version(monkeypatch):
+    calls = []
+    kernel = SimpleNamespace(flash_attn_interface=object())
+    fake_kernels = SimpleNamespace(
+        has_kernel=lambda repo_id, **kwargs: (
+            calls.append(("has", repo_id, kwargs)) or True
+        ),
+        get_kernel=lambda repo_id, **kwargs: (
+            calls.append(("get", repo_id, kwargs)) or kernel
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "kernels", fake_kernels)
+    monkeypatch.setattr(fa_module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(fa_module.torch.cuda, "get_device_capability", lambda: (8, 9))
+    result = fa_module._load_flash_attention_3()
+    assert result is kernel.flash_attn_interface
+    assert calls == [
+        (
+            "has",
+            "kernels-community/flash-attn3",
+            {"version": fa_module.FA3_KERNEL_VERSION},
+        ),
+        (
+            "get",
+            "kernels-community/flash-attn3",
+            {"version": fa_module.FA3_KERNEL_VERSION},
+        ),
+    ]
 
 
 def assert_close(t1, t2, name, atol=1e-2, rtol=1e-2):
@@ -344,13 +377,13 @@ class TestOverrideMechanism:
     def test_override_fa3(self):
         """Test that override='fa3' uses FA3."""
         set_impl('fa3')
-        assert fa_module.USE_FA3 == True
+        assert fa_module.USE_FA3
         set_impl(None)
 
     def test_override_sdpa(self):
         """Test that override='sdpa' uses SDPA."""
         set_impl('sdpa')
-        assert fa_module.USE_FA3 == False
+        assert not fa_module.USE_FA3
         set_impl(None)
 
     def test_override_auto(self):

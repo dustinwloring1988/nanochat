@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "datasets>=3.2.0",
     "filelock>=3.19.0",
-    "kernels>=0.11.7",
+    "kernels>=0.17.1",
     "numpy>=1.26.0",
     "psutil>=7.1.0",
     "pyarrow>=21.0.0",
@@ -19,10 +19,24 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "backoff>=2.2.1",
+    "black>=26.0.0",
+    "coolname>=5.0.0",
+    "dataclasses-json>=0.6.7",
+    "funcy>=2.1",
+    "genson>=1.4.0",
+    "humanize>=4.0.0",
+    "igraph>=1.0.0",
     "ipykernel>=7.1.0",
+    "jsonschema>=4.26.0",
     "matplotlib>=3.10.8",
+    "omegaconf>=2.3.0",
+    "openai>=3.19.0",
     "pytest>=8.0.0",
+    "pyyaml>=6.0.0",
     "python-dotenv>=1.2.1",
+    "rich>=15.0.0",
+    "shutup>=0.3.0",
 ]
 
 [tool.pytest.ini_options]

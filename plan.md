@@ -1,9 +1,9 @@
 # Nanochat AI Scientist v2 — Work Checklist
 
-- **Status:** Implemented work is verified; remaining items are explicitly blocked.
+- **Status:** Implemented work is verified; remaining gated items are explicitly blocked.
 - **Current hardware:** RTX 4060 Ti, 16 GB VRAM.
 - **Upstream pin:** `96bd51617cfdbb494a9fc283af00fe090edfae48`
-- **Latest verification:** Linux `165 passed, 11 skipped`; focused suite `66 passed, 1 skipped`; host subset `108 passed, 18 skipped`.
+- **Latest verification:** Linux `178 passed, 1 skipped`; system host subset `111 passed, 18 skipped`; synchronized CPU dev host `149 passed, 16 skipped`; focused AI Scientist host tests `53 passed, 2 skipped`; Docker FA3 attention tests `16 passed`.
 - **Data policy:** Use ignored repository `data/` for pilot assets; keep `C:\Users\dusti\.cache\nanochat` separate and unchanged.
 
 This is a short operational checklist. Detailed implementation history and evidence remain in `postmordum.md`.
@@ -25,12 +25,19 @@ This is a short operational checklist. Detailed implementation history and evide
 | --- | --- | --- | --- |
 | Fixed-context SFT infrastructure | PASS | Manifest-only JSONL data, fixed 2,048 context, run-local paths, versioned checkpoints, exact loader/RNG resume, and rollback are implemented in `sft_manifest.py`, `sft_runtime.py`, and `sft_train_curriculum.py`. | A legacy global-cache path, unmanifested data, or non-2,048 context is used. |
 | SFT runtime probe | PASS | CPU and RTX 4060 Ti probes resume with model delta `0.0` and identical next batches; the GPU probe peaked at `1,235,122,176` bytes. | A probe fails, loses state, writes outside its run directory, or is presented as quality evidence. |
-| Legacy SFT entry point | PASS | `chat_sft.py` fails closed and directs users to the approved run-local entry point. | The legacy script can write to `chatsft_checkpoints` or another trusted namespace. |
+| FA3 kernel discovery | PASS | Docker resolves `kernels-community/flash-attn3` API version `1` on RTX 4060 Ti sm89; the tiny bfloat16 causal probe is finite and the full attention suite passes `16/16`. | Kernel discovery omits the API version, silently falls back, or passes only on SDPA. |
+| Host AI Scientist test dependencies | PASS | The dev group and lockfile now provide provider, schema, config, workspace, trace, and formatting dependencies; the focused host set passes `53` tests with only two intentional POSIX skips. | Tests are silently skipped because required host test dependencies are absent or the lock is stale. |
+| Docker build-context hygiene | PASS | `.dockerignore` excludes `.venv-*/`; the final Docker build context was `30.72 kB`. | A local virtual environment is copied into the image or trusted cache. |
+| Legacy SFT entry point | PASS | `chat_sft.py` fails closed and directs users to the separately approved fixed-context runtime probe; production SFT remains gated. | The legacy script can write to `chatsft_checkpoints` or another trusted namespace. |
 | Redacted trace writer | PASS | `trace_writer.py` provides versioned JSONL, deterministic redaction, trust markers, retention/deletion, path checks, and fail-closed behavior; capture is disabled by default. | Secrets, raw provider traffic, image bytes, uploads, replay, or automatic training appear. |
 | Provider trace integration | PASS | Central provider calls and launcher preflight use only an explicit opt-in writer; direct provider backends fail closed while tracing is enabled. | A direct provider path silently bypasses redaction or capture occurs by default. |
 | Dynamic-context gate | PASS | `dynamic_context.py` validates discrete buckets, budget arithmetic, resume metadata, fixed fallback, and resource-evidence shape while keeping activation disabled. | Dynamic or interpolated context is activated without runtime/resource evidence and approval. |
-| Test and static checks | PASS | Linux, host, focused SFT/trace/dynamic tests, targeted Black/Ruff, and AST parsing pass; skipped checks are labeled. | A skipped, mocked, unavailable, or failed check is reported as passing evidence. |
+| Test and static checks | PASS | Linux, host, focused SFT/trace/dynamic/FA3 tests, Ruff, Black workflow checks, and AST parsing pass; skipped and formatting-limited checks are labeled. | A skipped, mocked, unavailable, or failed check is reported as passing evidence. |
 | Documentation consolidation | PASS | This checklist and `postmordum.md` are the active planning records; obsolete design documents are removed. | Deleted planning documents are still presented as active gates. |
+| Default workflow usability | PASS | Docker and reference shell workflows are pretraining-only, omit disabled SFT commands, and point to `python -m scripts.sft_smoke --help`; the legacy entry point gives the same fail-closed handoff. | A default workflow invokes `chat_sft`, the unapproved long-context SFT config, or a trusted SFT namespace. |
+| Workflow contract regression | PASS | `tests/test_sft_entrypoint.py` verifies the handoff and rejects stale executable SFT commands; focused run passed `18` tests. | Static workflow contracts fail or the disabled entry point stops directing users to the approved path. |
+| Host shell syntax check | BLOCKED | Run `bash -n` in a working POSIX shell for all four changed workflow scripts. | The Windows `bash.exe` delegates to an unavailable WSL virtual disk; no syntax-pass claim is made. |
+| Native Windows GPU optimizer environment | BLOCKED | Use the Linux container for CUDA/Triton optimizer coverage. | The separate Windows GPU venv has CUDA but no working Triton installation; its four optimizer tests fail before assertions. |
 
 ## Remaining work
 
@@ -49,4 +56,4 @@ This is a short operational checklist. Detailed implementation history and evide
 - **AG-2 traces:** PASS — approved on 2026-09-25 for opt-in local redaction and tests; default capture remains disabled.
 - **AG-3 long context:** BLOCKED — no dynamic-bucket runtime/resource evidence or explicit activation approval.
 - **Promotion/cache changes:** BLOCKED — require a separate human-approved manifest, reproduction, and cache decision.
-- **Git changes:** PASS — the user explicitly authorized committing and pushing the reviewed changes in this session.
+- **Git changes:** PASS — the user explicitly requested committing and pushing this reviewed change set; no safety-gated action is included.

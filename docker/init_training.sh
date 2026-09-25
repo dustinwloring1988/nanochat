@@ -1,18 +1,18 @@
 #!/bin/bash
-# Initialize and run full curriculum training pipeline in Docker
+# Initialize and run the approved pretraining pipeline in Docker
 
 set -e
 
 echo "=========================================="
-echo "NanoChat Curriculum Training Pipeline"
+echo "NanoChat Pretraining Pipeline"
 echo "=========================================="
 echo ""
 echo "This script will:"
 echo "  1. Download tokenizer training corpus (samples)"
 echo "  2. Train tokenizer on mixed corpus"
 echo "  3. Run curriculum-based pretraining"
-echo "  4. Run supervised fine-tuning (SFT)"
 echo ""
+echo "Supervised fine-tuning is intentionally not run by this workflow."
 echo "Note: This is configured for single GPU (4060Ti)"
 echo "      Uses sampled datasets for fast testing"
 echo ""
@@ -23,7 +23,6 @@ source /workspace/.venv/bin/activate
 # Create necessary directories
 mkdir -p $NANOCHAT_BASE_DIR/curriculum_data
 mkdir -p $NANOCHAT_BASE_DIR/base_checkpoints
-mkdir -p $NANOCHAT_BASE_DIR/sft_checkpoints
 
 # Step 1: Train tokenizer on mixed curriculum corpus
 echo "=========================================="
@@ -106,69 +105,14 @@ else
 fi
 echo ""
 echo "=========================================="
-echo "STEP 3: Supervised Fine-Tuning (SFT)"
-echo "=========================================="
-echo ""
-
-# Check if base model exists
-BASE_MODEL_DIR="$NANOCHAT_BASE_DIR/base_checkpoints/d6_curriculum_4060ti"
-if [ ! -d "$BASE_MODEL_DIR" ]; then
-    echo "ERROR: Base model not found at $BASE_MODEL_DIR"
-    echo ""
-    echo "Pretraining may have failed. Check logs above for errors."
-    echo "SFT requires a pretrained base model to continue."
-    echo ""
-    exit 1
-fi
-
-echo "✓ Base model found at $BASE_MODEL_DIR"
-echo ""
-echo "Starting multi-dataset curriculum SFT..."
-echo "Using 5 datasets across 3 stages (instruction → coding/agents → consolidation)"
-echo ""
-
-# Run multi-dataset curriculum SFT
-python -m scripts.sft_train_curriculum \
-    --config config/sft_curriculum.yaml \
-    --model-tag d6_curriculum_4060ti \
-    --device-batch-size 4 \
-    --total-batch-size 16384 \
-    --eval-every 200
-
-echo ""
-echo "SFT curriculum training complete!"
-echo ""
-
-echo ""
-echo ""
-echo "=========================================="
-echo "STEP 4: Benchmarking & Evaluation"
-echo "=========================================="
-echo ""
-
-# 4a: Inference Performance Benchmark (latency, throughput, MBU)
-echo "Running inference performance benchmark..."
-python -m scripts.infer_bench -i sft -g d6_curriculum_4060ti_sft_curriculum
-
-# 4b: Model Quality Evaluation (ChatCORE: ARC, MMLU, GSM8K, HumanEval)
-echo ""
-echo "Running chat quality benchmark (ChatCORE)..."
-python -m scripts.chat_eval -i sft -g d6_curriculum_4060ti_sft_curriculum
-
-echo ""
-echo "=========================================="
-echo "Training & Benchmarking Pipeline Complete!"
+echo "Pretraining Pipeline Complete"
 echo "=========================================="
 echo ""
 echo "Base model: $NANOCHAT_BASE_DIR/base_checkpoints/d6_curriculum_4060ti/"
-echo "Chat model: $NANOCHAT_BASE_DIR/sft_checkpoints/d6_curriculum_4060ti_sft_curriculum/"
 echo ""
-echo "Training stages completed:"
-echo "  ✓ Tokenizer (mixed corpus with 5% SFT samples)"
-echo "  ✓ Curriculum pretraining (4 stages, multi-source)"
-echo "  ✓ SFT curriculum (3 stages, 5 datasets)"
-echo "  ✓ Benchmarks (infer_bench + chat_eval)"
+echo "SFT is not run by this workflow. The legacy SFT entry point is disabled,"
+echo "and production SFT requires a separately approved data and quality plan."
 echo ""
-echo "Next steps:"
-echo "  - Chat with model: python -m scripts.chat_cli --model-tag d6_curriculum_4060ti_sft_curriculum"
+echo "For the separately approved fixed-context runtime/resume probe, use:"
+echo "  python -m scripts.sft_smoke --help"
 echo ""

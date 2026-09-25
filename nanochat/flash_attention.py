@@ -13,8 +13,13 @@ Usage (drop-in replacement for FA3):
     # Inference (with KV cache)
     y = flash_attn.flash_attn_with_kvcache(q, k_cache, v_cache, k=k, v=v, ...)
 """
+from types import SimpleNamespace
+
 import torch
 import torch.nn.functional as F
+
+
+FA3_KERNEL_VERSION = 1
 
 
 # =============================================================================
@@ -31,16 +36,15 @@ def _load_flash_attention_3():
         import os
         os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         from kernels import get_kernel, has_kernel
-        # The varunneal kernel obtains better results for H100/Hopper
         if major == 9:
             hf_kernel = "varunneal/flash-attention-3"
-            return get_kernel(hf_kernel).flash_attn_interface
         else:
             hf_kernel = "kernels-community/flash-attn3"
-            if has_kernel(hf_kernel):
-                return get_kernel(hf_kernel).flash_attn_interface
-            else:
-                return None
+        if not has_kernel(hf_kernel, version=FA3_KERNEL_VERSION):
+            return None
+        return get_kernel(
+            hf_kernel, version=FA3_KERNEL_VERSION
+        ).flash_attn_interface
 
     except Exception:
         return None
@@ -188,7 +192,6 @@ def flash_attn_with_kvcache(q, k_cache, v_cache, k=None, v=None, cache_seqlens=N
 # =============================================================================
 # Export: flash_attn module interface (drop-in replacement for FA3)
 # =============================================================================
-from types import SimpleNamespace
 flash_attn = SimpleNamespace(
     flash_attn_func=flash_attn_func,
     flash_attn_with_kvcache=flash_attn_with_kvcache,

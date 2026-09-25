@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script is configured to train your own GPT-2 grade LLM (pretraining + finetuning)
+# This script is configured to train a GPT-2 grade base model by pretraining.
 # It is designed to run on a blank 8XH100 GPU node and takes approximately 1.5 hours to complete.
 
 # 1) Example launch (simplest):
@@ -68,12 +68,5 @@ torchrun --standalone --nproc_per_node=8 -m scripts.base_train -- --depth=24 --t
 # evaluate the model: CORE metric, BPB on train/val, and draw samples
 torchrun --standalone --nproc_per_node=8 -m scripts.base_eval -- --device-batch-size=16
 
-# -----------------------------------------------------------------------------
-# SFT (teach the model conversation special tokens, tool use, multiple choice)
-
-# run SFT and eval the model
-torchrun --standalone --nproc_per_node=8 -m scripts.chat_sft -- --run=$WANDB_RUN
-torchrun --standalone --nproc_per_node=8 -m scripts.chat_eval -- -i sft
-
-# chat with the model over CLI! Leave out the -p to chat interactively
-# python -m scripts.chat_cli -p "Why is the sky blue?"
+echo "SFT skipped; use the separately approved fixed-context runtime probe if needed:"
+echo "  python -m scripts.sft_smoke --help"
