@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-25
 - **Repository:** `F:\UserData\git-repos\nanochat - Copy`
-- **Integration status:** Implemented; code hardening, live one-node validation, fixed-context multi-stage resume, bounded SFT quality evaluation, and bounded long-context proof complete; production dynamic activation/multi-seed expansion pending
+- **Integration status:** Implemented; code hardening, live one-node validation, fixed-context multi-stage resume, bounded SFT quality evaluation, bounded long-context proof, three-stage one-node descendant lineage, sequential seed confirmation, and bounded OpenRouter provider acceptance complete; production security boundary and human-only promotion remain pending
 - **Open-work tracker:** `plan.md` remaining-work checklist
 - **Change control:** The user explicitly authorized committing and pushing the reviewed change set; no safety-gated research action is included.
 
@@ -14,7 +14,7 @@ The initial implementation passed the complete Linux-container suite with 71 tes
 
 A second hardening pass now materializes a trusted baseline experiment configuration, enforces one-node BFTS execution, keeps artifacts project-relative, validates fixed-budget/result/guardrail contracts, removes the runtime repository mount, uses an allowlisted child environment, strengthens process-tree cleanup, and begins enforcing shared provider budgets without automatic prompt/response capture. The final regression also verifies controller-side result revalidation, detached controller attestation, mandatory source/cache/runtime provenance, fail-closed worker timeouts, explicit unknown-MFU handling, provider edge cases, curriculum composition metadata, active-versus-wall timing, resume-contract rejection, and pre/post integrity manifests.
 
-The integration is now validated through live one-node BFTS runs with both `opencode/space-bunny-free` and `openrouter/stealth/space-bunny-alpha`. The controller and generated code still share the same container identity; a separate privilege boundary remains future work. The loader has a versioned exact snapshot/restore path, both training scripts load rank-local state, and isolated one-stage and fixed-context two-stage GPU resume probes pass. Dynamic context/long-context curriculum and real multi-stage BFTS remain gated. Candidate source inheritance passes an offline controller-level stage-1-to-4 regression but not a real multi-stage BFTS training run, and multi-node/multi-seed confirmation remains disabled by the one-node safety profile. Those items remain in `plan.md` rather than being duplicated as a task list here.
+The integration is now validated through live one-node BFTS runs with OpenRouter `qwen/qwen3-coder-flash` and the earlier OpenCode/OpenRouter baselines. The controller and generated code still share the same container identity; a separate privilege boundary remains future work. The loader has a versioned exact snapshot/restore path, both training scripts load rank-local state, and isolated one-stage and fixed-context two-stage GPU resume probes pass. Dynamic context/long-context curriculum, production promotion, and any multi-node search remain gated. A real three-stage one-node descendant lineage and the sequential `[42, 43, 44]` confirmation protocol are now complete; multi-node search remains disabled by the one-node safety profile. Those boundaries remain in `plan.md` rather than being duplicated as a task list here.
 
 ## Work completed
 
@@ -105,9 +105,18 @@ The focused AI/loader/checkpoint/curriculum suite passes 72 tests in the Linux c
 - Live OpenRouter preflight passed using JSON mode after three attempts; the live one-node BFTS run completed with `AI_SCIENTIST_ALLOW_MISSING_USAGE=1` and a controller-accepted result.
 - OpenRouter’s free endpoint omits usage and price metadata, so token limits are unavailable for that explicitly opted-in mode; API-call limits remain enforced.
 - Provider failures now cross process-pool boundaries as sanitized worker errors instead of terminating the pool.
-- Added an offline AgentManager regression that materializes accepted-parent source snapshots across main stages 1–4, verifies inherited node identity and marker propagation, and proves no provider call or second executed node occurs; real descendant training remains a future gate.
+- Added an offline AgentManager regression that materializes accepted-parent source snapshots across main stages 1–4, verifies inherited node identity and marker propagation, and proves no provider call or second executed node occurs; the later real one-node descendant lineage closes that bounded training gate.
 - The resume audit confirmed that the previous loader state was approximate: source cursors were row-group coarse, document buffers and prefetched packed batches were not serialized, only rank 0 wrote common metadata, and stage transitions reset loader state. A versioned CPU-testable loader snapshot, rank-local checkpoint files, both training scripts, an offline checkpoint-boundary round trip, a versioned stage-transition contract, consume-before-transition handling, and resume-step side-effect suppression now cover those pieces; isolated one-stage and fixed-context two-stage GPU probes pass, while dynamic context remains future work.
 - Follow-on SFT and trace infrastructure is implemented within the approved fixed-context/opt-in scope; long-context and promotion remain gated by `plan.md`.
+
+### Bounded lineage, seed, and provider gate — 2026-09-25
+
+- Added controller-owned lineage handoff support in `ai_scientist/treesearch/lineage.py`. A child invocation accepts a parent journal, node ID, parent stage, and safe lineage ID; it revalidates the parent canonical result, source snapshot, configuration hash, and controller-attestation hashes before copying the parent into a new stage journal. Every manifest records `max_nodes=1`, executed node count, parent/child result and source hashes, and `promotion=not authorized`.
+- Added a real three-invocation lineage using OpenRouter `qwen/qwen3-coder-flash`: root node `547c044bddee4c8cb59d2ddd2d20b3a0`, stage-2 child `61d521f87cd3414d9fb87e722315143a`, and stage-3 child `dc1631243ca34c56ae35216eb1906738`. Each child executed exactly one canonical node and received a controller attestation. The accepted BPBs were `1.4922280542`, `1.4959173668`, and `1.5008056368`; all lineage manifests report `status=complete`. Compact evidence is `evidence/ai-scientist-lineage-20260925.json`.
+- Added the sequential seed runner `scripts/seed_confirmation.py`. It runs `[42, 43, 44]` in order, archives immutable source snapshots, validates canonical results under an explicit seed-variant contract, writes and verifies controller attestations, and applies the predeclared mean/single-seed tolerances. Results were `1.4919842636`, `1.5011207957`, and `1.4906410315`; mean `1.4945820303` passed both checks. Compact evidence is `evidence/ai-scientist-seed-confirmation-20260925.json`.
+- Completed the bounded OpenRouter provider gate with persisted `preflight.json` and `run_status.json`. The accepted root used `max_nodes=1`, 10-call/100,000-input/50,000-output caps, and `AI_SCIENTIST_ALLOW_MISSING_USAGE=1`; preflight reported catalog size `458`, structured tool output, and no fallback. Evidence is `evidence/ai-scientist-baseline-openrouter-20260925.json`.
+- Repairs made during the live gate were fail-closed and recorded: journal persistence no longer depends on an optional provider summary callback; journal JSON is loaded through explicit node/relationship reconstruction; nanochat child generation is constrained to one canonical run with a recorded hyperparameter change; and CUDA runtime introspection is skipped only when a post-fork controller probe raises `RuntimeError`. The earlier OpenCode pilot and rejected handoff attempts remain unaccepted evidence.
+- Verification after the gate: `python -m compileall` passed for the changed AI Scientist/training modules; targeted Ruff checks passed; the focused host contract/lineage/provider/workspace tests passed `7 passed, 2 skipped`; the rebuilt image passed the compact manifest verifier; the authoritative Linux container suite passed `192 passed, 1 skipped`; and `git diff --check` is clean. Raw experiment directories were removed after compact evidence capture. `experiments/` contains only `.gitkeep`; no checkpoint, source snapshot, or generated patch was promoted. The remaining security/privilege-boundary and human-only promotion work is item 5 in `plan.md`.
 
 ### Phase 1 implementation and gate slice — 2026-09-25
 
@@ -186,10 +195,10 @@ The system host interpreter has Ruff but not Black or Git Bash; the synchronized
 
 - At intake, repository references were inspected before opening the selected gates. No approved production SFT manifest, license/provenance record, held-out split, or numeric quality thresholds existed locally; the only materialized SFT records were the explicitly fabricated, non-quality probe data under `experiments/`.
 - At intake, the active long-context configuration remained fixed at `2048` and the proposed `8192` schedule had no real model-loader-resume, VRAM, or throughput evidence. The active multi-seed configuration remains disabled (`num_seeds=0`, `max_nodes=1`); seed text in task/idea files is untrusted.
-- The selected scopes were recorded in `plan.md`: bounded SFT quality, a two-step `2048→8192` proof envelope, and one-node seeds `[42, 43, 44]`. The first two are now completed and recorded below; the multi-seed scope remains open.
+- The selected scopes were recorded in `plan.md`: bounded SFT quality, a two-step `2048→8192` proof envelope, and one-node seeds `[42, 43, 44]`. All three are now completed and recorded below; multi-node search and production promotion remain open.
 - The default tokenizer corpus now excludes all SFT sources, uses only four pretraining sources summing to `1.0`, and exposes a Unicode-safe `--help` path. The default Docker pretraining workflow therefore no longer downloads SFT data indirectly.
 - Task message normalization now fails closed for malformed JSON, non-list input, missing roles, invalid message items, and empty lists; it no longer fabricates `Hello`/`Hi` records.
-- The intake slice used only local source inspection and synthetic/unit fixtures. The subsequent bounded SFT and long-context evidence runs are recorded separately below; no multi-seed run, provider call, generated-code execution, promotion, or trusted-cache write occurred.
+- The intake slice used only local source inspection and synthetic/unit fixtures. The subsequent bounded SFT, long-context, seed-confirmation, and lineage evidence runs are recorded separately below; no promotion or trusted-cache write occurred.
 - A separately authorized OpenCode pilot preflight passed with the approved `10`-call/`100,000`-input/`50,000`-output caps. The one-node run was aborted during generated-code execution before a result or integrity-after manifest; its run-local directory is untrusted and is not accepted as evidence.
 
 | Command | Result |
@@ -210,7 +219,7 @@ The system host interpreter has Ruff but not Black or Git Bash; the synchronized
 - The approved package contains 64 train records and 32 held-out records. The manifests have SHA-256 identities `ed96567df02202d0da96659bdd551bb90daf0d222672023a48a292842f42470b` and `27a756ab23872d7b00a41d22f1da1341d667bae58c6f32c8d42e99de3cc11204`; canonical conversation comparison found zero overlap.
 - The quality plan hash is `375c7d49d87e4d4f0ca52eac27d4d4f2effa04694eb3fd2a4360137506d7fd17`. It declares fixed context `2048`, device batch `1`, world size `1`, effective batch `8192`, `16` optimization steps, `65,536` held-out evaluation tokens, pass BPB `<= 1.6`, stop BPB `>= 2.0`, and minimum improvement `>= 0.01` BPB.
 - A clean RTX 4060 Ti run evaluated the final run-local checkpoint over all 32 held-out batches. Baseline held-out BPB was `1.6210418971`; final BPB was `1.8486887031`; improvement was `-0.2276468060`. The recorded decision is `inconclusive`, `quality_claim=false`, and `promotion=not authorized`. This is a completed quality evaluation, not an accepted model or promotion.
-- Compact evidence is tracked in `evidence/sft-quality-20260925.json`; the full run-local manifests, plan, checkpoints, and result remain under ignored `experiments/sft-quality-20260925/`.
+- Compact evidence is tracked in `evidence/sft-quality-20260925.json`; raw run-local SFT quality artifacts were removed after compact evidence capture.
 
 ### Long-context proof
 
@@ -218,7 +227,7 @@ The system host interpreter has Ruff but not Black or Git Bash; the synchronized
 - A real depth-6 nanochat model with maximum sequence length `8192`, the pinned local ClimbMix loader, deterministic CUDA execution, and a run-local checkpoint boundary completed forward/backward at both buckets. The 8K step had peak allocated/reserved VRAM of `6,332,701,184`/`7,417,626,624` bytes, active throughput of `7,307.2525` tokens/sec, and finite loss `4.8043961525`.
 - Reference-versus-resume model and optimizer maximum absolute deltas were `0.0`; loader state and next-batch equality were true. The evidence hash is `1d32c5a1334bc62d9969e776f0461e0b19604c7ac85e561fb74b59e6c3d59da6`.
 - Explicit approval `AG-LC-20260925` is recorded in `config/long_context_activation.json` for the bounded proof only. The default dynamic-context flag remains `False`; no production curriculum, checkpoint promotion, or trusted-cache write was activated.
-- Compact evidence is tracked in `evidence/long-context-20260925.json`; the full run-local evidence and resume checkpoint remain under ignored `experiments/long-context-20260925/`.
+- Compact evidence is tracked in `evidence/long-context-20260925.json`; raw run-local long-context evidence and resume checkpoints were removed after compact evidence capture.
 
 ### License reorganization review
 
@@ -252,7 +261,7 @@ The following table records the verified baseline plus the completed regression,
 | Host GPU dev environment | CUDA detected; four optimizer tests blocked by missing native Windows Triton |
 | Host dependency lock | `uv.lock` synchronized; `kernels>=0.17.1` |
 | Docker build context | `.venv-*/` excluded; final context `303.61 kB` |
-| Gate intake and completion evidence | SFT quality package/evaluation, `2048→8192` model-loader-resume/resource proof, and license reorganization review recorded; items 3–6 remain open |
+| Gate intake and completion evidence | SFT quality package/evaluation, `2048→8192` model-loader-resume/resource proof, three-stage one-node lineage, sequential seed confirmation, bounded OpenRouter acceptance, and license reorganization review recorded; security/promotion item 5 remains open |
 | SFT quality result | 64/32 pinned Apache-2.0 records, zero overlap, baseline/final BPB `1.621042`/`1.848689`, decision `inconclusive`, no promotion |
 | Long-context result | Exact plan/hash approval, 8K peak allocated/reserved `6,332,701,184`/`7,417,626,624` bytes, resume model/optimizer delta `0.0`, loader/next-batch equal |
 | Pretraining-only tokenizer default | Four pretraining sources, sum `1.0`, no SFT download, Unicode-safe help |
@@ -270,7 +279,7 @@ The following table records the verified baseline plus the completed regression,
 | Standalone d6 GPU training smoke | Passed; final validation BPB 1.491322, CORE -0.0200, peak VRAM 8.39 GB, active 158.37s, wall 310.24s, four plots |
 | Same-seed repeat | Passed within observed tolerance on the earlier schema; final BPB delta 0.000416, maximum curve delta 0.000443 |
 | Offline one-node BFTS integration | Passed with local query stub; controller-accepted result and attestation produced; no network provider calls |
-| Offline AgentManager stage inheritance | Passed across main stages 1–4; accepted source marker propagated, one result archived, no provider calls or extra executed nodes |
+| Offline AgentManager stage inheritance | Passed across main stages 1–4; accepted source marker propagated, one result archived, no provider calls or extra executed nodes; real bounded descendant training also passed |
 | Versioned loader snapshot tests | Passed; first-row-group, cursor/buffer, pending-batch, source-order, epoch, and fail-closed state checks |
 | Rank-local checkpoint tests | Passed; rank 0/1 state separation, metadata derivation, missing-file failure, and legacy save/load compatibility |
 | Training-script rank-local wiring | Compile/full-suite verified; both standard and curriculum trainers load rank-local state and save it explicitly; real one-/two-stage resume probes pass |
@@ -286,6 +295,8 @@ The following table records the verified baseline plus the completed regression,
 | Current bounded OpenCode pilot | Preflight passed; aborted during generated-code execution before result; no accepted evidence |
 | OpenRouter live preflight | Passed; JSON structured mode, three preflight attempts, no tool-call support reported |
 | OpenRouter live one-node BFTS | Passed with `AI_SCIENTIST_ALLOW_MISSING_USAGE=1`; BPB 1.491395, controller-accepted result and attestation |
+| OpenRouter bounded lineage | Passed with persisted preflight/status evidence; root, stage-2, and stage-3 children each executed one attested canonical node under `max_nodes=1` |
+| Sequential seed confirmation | Passed for `[42, 43, 44]`; all canonical/attested, mean BPB 1.494582 within +0.02, every seed within +0.05 |
 
 The full native Windows suite also has eight execution-sandbox failures because the Unix-only `resource` module is unavailable. This is a host-platform limitation, not a failure of the Linux GPU path; the full Docker suite is the authoritative verification path for those tests.
 
@@ -326,11 +337,11 @@ The original `runs/ai_scientist_smoke.sh` invoked a profile capable of running m
 | Fixed 2,048-token context | Avoids unsafe dynamic dataloader and compiled-shape changes | The bounded bucket proof is complete; integrate the approved profile before enabling production curriculum context research |
 | Provisional 200-iteration d6 profile | Keeps the first research budget deterministic but has not been benchmarked on this GPU | Measure runtime, VRAM, throughput, and metric variance; record a stable budget |
 | Candidate-authored result file | Generated code can write a plausible `results.json` in the shared account | Parent revalidation and detached HMAC attestation are implemented; move to a separate privilege domain for stronger isolation |
-| Candidate source inheritance | Archive/reuse is implemented and unit-tested after the review found silent reversion to root | Run a full multi-stage BFTS descendant test before treating stage results as cumulative |
+| Candidate source inheritance | Archive/reuse is implemented, unit-tested, and now exercised by a real three-stage one-node lineage | Keep the privilege boundary and promotion review separate from the completed bounded proof |
 | Same-container execution boundary | Removing the repository bind and allowlisting the environment blocks accidental access but not same-UID inspection or sibling writes | Separate controller and generated execution into distinct services or privilege domains |
 | Improved but non-exact sampler resume | Versioned contracts reject incompatible model/data/curriculum settings; loader snapshots, rank-local files, both training scripts, offline and real one-/two-stage probes, and composition restoration preserve/load state; dynamic context remains disabled | Integrate the approved dynamic profile into production training only after a separate activation review |
 | Linux-container test authority | Native Windows lacks Unix sandbox modules | Use `python -m pytest -q --ignore=tests/test_execution.py` on Windows; keep the Linux container authoritative for the full suite |
-| Live API path | OpenCode and OpenRouter one-node live paths pass; OpenRouter requires explicit missing-usage opt-in because its free endpoint omits token metadata | Keep credentials local, rerun preflight before live work, and do not weaken default fail-closed budgets |
+| Live API path | OpenCode and OpenRouter one-node live paths pass; the accepted bounded lineage additionally uses persisted OpenRouter qwen runs; OpenRouter requires explicit missing-usage opt-in because its free endpoint omits token metadata | Keep credentials local, rerun preflight before live work, and do not weaken default fail-closed budgets |
 | Provider hardening verification | Offline retry, budget, multimodal, role-routing, trace-privacy, and live OpenCode/OpenRouter one-node checks pass | Keep live preflight and bounded one-node runs as the acceptance gate |
 | External cache separation | The pilot data was placed in ignored repository `data/` rather than the user's external cache | Decision recorded: keep the caches separate; any future promotion remains human-only |
 
@@ -388,6 +399,7 @@ The active work checklist and remaining gates are in `plan.md`. The most relevan
 
 - `ai_scientist/providers.py`
 - `ai_scientist/treesearch/nanochat_adapter.py`
+- `ai_scientist/treesearch/lineage.py`
 - `ai_scientist/treesearch/parallel_agent.py`
 - `ai_scientist/treesearch/interpreter.py`
 - `launch_scientist_bfts.py`
@@ -397,12 +409,14 @@ The active work checklist and remaining gates are in `plan.md`. The most relevan
 - `nanochat/research_results.py`
 - `scripts/base_train.py`
 - `scripts/base_train_curriculum.py`
+- `scripts/seed_confirmation.py`
 - `bfts_config.yaml`
 - `docker/Dockerfile.ai-scientist`
 - `docker-compose.yml`
 - `tests/test_ai_scientist_provider.py`
 - `tests/test_ai_scientist_contract.py`
 - `tests/test_ai_scientist_workspace.py`
+- `tests/test_ai_scientist_lineage.py`
 - `tests/test_curriculum_training.py`
 - `tests/test_multi_source_dataloader.py`
 - `tests/test_checkpoint_manager.py`
@@ -436,10 +450,12 @@ The active work checklist and remaining gates are in `plan.md`. The most relevan
 - `tests/test_long_context.py`
 - `evidence/sft-quality-20260925.json`
 - `evidence/long-context-20260925.json`
+- `evidence/ai-scientist-baseline-20260925.json`
+- `evidence/ai-scientist-baseline-openrouter-20260925.json`
+- `evidence/ai-scientist-lineage-20260925.json`
+- `evidence/ai-scientist-seed-confirmation-20260925.json`
 - `config/long_context_activation.json`
-- `experiments/sft-quality-20260925` (run-local SFT quality artifacts)
-- `experiments/long-context-20260925` (run-local long-context proof artifacts)
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-sft-probe-20260925` (bounded CPU SFT probe artifacts)
-- `experiments/sft-probe-gpu-20260925-v2` (bounded GPU SFT probe artifacts; untrusted and run-local)
+- `experiments/` (raw artifacts removed; only `.gitkeep` remains)
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-resume-docker-97408ef017bb442eba8907cca4fbcfc9` (isolated one-stage GPU probe artifacts)
 - `C:\Users\dusti\AppData\Local\Temp\opencode\nanochat-multistage-docker-4e91528a9f4748bbabf4bc073e8dc38c` (isolated fixed-context two-stage GPU probe artifacts)

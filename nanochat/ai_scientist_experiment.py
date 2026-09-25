@@ -137,10 +137,14 @@ def validate_experiment_contract(
     candidate: PretrainingExperimentConfig,
     baseline: PretrainingExperimentConfig,
     source_dir: Path,
+    *,
+    allow_seed_variants: bool = False,
 ):
     candidate.validate()
     baseline.validate()
     for name, expected in FIXED_EXPERIMENT_FIELDS.items():
+        if allow_seed_variants and name == "seed":
+            continue
         actual = getattr(candidate, name)
         if actual != expected:
             raise ValueError(

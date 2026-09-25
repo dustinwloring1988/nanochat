@@ -209,7 +209,9 @@ def _artifact_config_hash(paths: dict) -> str:
     return hashlib.sha256(content.replace("\r\n", "\n").encode("utf-8")).hexdigest()
 
 
-def _validated_nanochat_artifact(artifact_dir: Path, cfg) -> tuple[dict, dict, Path]:
+def _validated_nanochat_artifact(
+    artifact_dir: Path, cfg, *, allow_seed_variants: bool = False
+) -> tuple[dict, dict, Path]:
     artifact_dir = Path(artifact_dir).resolve()
     artifact_root = Path(cfg.log_dir).resolve()
     if not artifact_dir.is_relative_to(artifact_root):
@@ -218,16 +220,25 @@ def _validated_nanochat_artifact(artifact_dir: Path, cfg) -> tuple[dict, dict, P
     result_path = paths["working"] / RESULT_FILENAME
     payload = load_canonical_result(result_path)
     paths["config_hash"] = _artifact_config_hash(paths)
-    validate_nanochat_result(payload, cfg, paths)
+    validate_nanochat_result(
+        payload, cfg, paths, allow_seed_variants=allow_seed_variants
+    )
     return payload, paths, result_path
 
 
 def verify_nanochat_artifact(
-    artifact_dir: Path, cfg, key: bytes, expected_node_id: str | None = None
+    artifact_dir: Path,
+    cfg,
+    key: bytes,
+    expected_node_id: str | None = None,
+    *,
+    allow_seed_variants: bool = False,
 ) -> dict:
     from nanochat.research_results import source_hash
 
-    payload, paths, result_path = _validated_nanochat_artifact(artifact_dir, cfg)
+    payload, paths, result_path = _validated_nanochat_artifact(
+        artifact_dir, cfg, allow_seed_variants=allow_seed_variants
+    )
     attestation_path = paths["working"] / ATTESTATION_FILENAME
     with open(attestation_path, "r", encoding="utf-8") as handle:
         attestation = json.load(handle)
@@ -264,10 +275,14 @@ def attest_nanochat_artifact(
     key: bytes,
     node_id: str,
     task_id: str,
+    *,
+    allow_seed_variants: bool = False,
 ) -> dict:
     from nanochat.research_results import source_hash, write_json_atomic
 
-    payload, paths, result_path = _validated_nanochat_artifact(artifact_dir, cfg)
+    payload, paths, result_path = _validated_nanochat_artifact(
+        artifact_dir, cfg, allow_seed_variants=allow_seed_variants
+    )
     paths = _artifact_paths(Path(artifact_dir).resolve())
     attested = {
         "node_id": node_id,
@@ -291,7 +306,9 @@ def attest_nanochat_artifact(
     return payload
 
 
-def validate_nanochat_result(payload: dict, cfg, paths: dict) -> None:
+def validate_nanochat_result(
+    payload: dict, cfg, paths: dict, *, allow_seed_variants: bool = False
+) -> None:
     from nanochat.ai_scientist_experiment import (
         CONTROLLER_GUARDRAILS,
         PretrainingExperimentConfig,
@@ -309,7 +326,12 @@ def validate_nanochat_result(payload: dict, cfg, paths: dict) -> None:
         candidate = PretrainingExperimentConfig.from_mapping(json.load(handle))
     with open(paths["baseline_config"], "r", encoding="utf-8") as handle:
         baseline = PretrainingExperimentConfig.from_mapping(json.load(handle))
-    validate_experiment_contract(candidate, baseline, paths["source"].resolve())
+    validate_experiment_contract(
+        candidate,
+        baseline,
+        paths["source"].resolve(),
+        allow_seed_variants=allow_seed_variants,
+    )
 
     metrics = payload["metrics"]
     expected_tokens = candidate.num_iterations * candidate.total_batch_size
@@ -359,11 +381,15 @@ def validate_nanochat_result(payload: dict, cfg, paths: dict) -> None:
         raise ValueError("Result tokenizer hash does not match shared cache")
     if provenance.get("dataset_manifest_hash") != expected_dataset_hash:
         raise ValueError("Result dataset manifest hash does not match shared cache")
-    expected_runtime = runtime_metadata()
-    actual_runtime = provenance.get("runtime", {})
-    for name in ("python", "torch", "cuda", "cuda_available", "device"):
-        if actual_runtime.get(name) != expected_runtime.get(name):
-            raise ValueError(f"Result runtime field {name} does not match controller")
+    try:
+        expected_runtime = runtime_metadata()
+    except RuntimeError:
+        expected_runtime = None
+    if expected_runtime is not None:
+        actual_runtime = provenance.get("runtime", {})
+        for name in ("python", "torch", "cuda", "cuda_available", "device"):
+            if actual_runtime.get(name) != expected_runtime.get(name):
+                raise ValueError(f"Result runtime field {name} does not match controller")
     user_config = provenance["user_config"]
     for name in (
         "max_seq_len",

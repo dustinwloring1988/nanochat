@@ -3,7 +3,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -13,7 +13,6 @@ if not os.environ.get("AI_SCIENTIST_RUN_ID"):
 
 from ai_scientist.providers import (
     DEFAULT_MODEL,
-    ProviderError,
     configure_provider_tracing,
     llm_budget,
     preflight_model,
@@ -58,14 +57,18 @@ def parse_args():
         action="store_true",
         help="Explicitly allow provider preflight and live LLM calls",
     )
+    parser.add_argument("--parent-journal")
+    parser.add_argument("--parent-node-id")
+    parser.add_argument("--parent-stage", type=int, choices=(1, 2))
+    parser.add_argument("--lineage-id")
     return parser.parse_args()
 
 
 def run_preflight(model: str) -> dict:
     try:
         return preflight_model(model)
-    except ProviderError as exc:
-        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def save_token_tracker(idea_dir: Path):
@@ -76,6 +79,55 @@ def save_token_tracker(idea_dir: Path):
     }
     with open(idea_dir / "token_tracker.json", "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
+
+
+def save_preflight_evidence(
+    idea_dir: Path,
+    result: dict,
+    *,
+    model: str,
+    run_id: str,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "run_id": run_id,
+        "model": model,
+        "allow_missing_usage": os.environ.get(
+            "AI_SCIENTIST_ALLOW_MISSING_USAGE", "0"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        "budget": llm_budget.snapshot(),
+        "result": result,
+    }
+    write_json_atomic(idea_dir / "preflight.json", payload)
+
+
+def save_run_status(
+    idea_dir: Path,
+    status: str,
+    *,
+    model: str,
+    run_id: str,
+    max_nodes: int,
+    error: str | None = None,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "run_id": run_id,
+        "model": model,
+        "max_nodes": max_nodes,
+        "provider_budget": llm_budget.snapshot(),
+        "allow_missing_usage": os.environ.get(
+            "AI_SCIENTIST_ALLOW_MISSING_USAGE", "0"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+    }
+    if error is not None:
+        payload["error"] = error
+    write_json_atomic(idea_dir / "run_status.json", payload)
 
 
 def trace_config_from_run_config(config_path: Path, workspace: Path):
@@ -122,6 +174,16 @@ def main():
         )
 
     project_root = Path(__file__).resolve().parent
+    handoff_values = (
+        args.parent_journal,
+        args.parent_node_id,
+        args.parent_stage,
+        args.lineage_id,
+    )
+    if any(value is not None for value in handoff_values) and not all(
+        value is not None for value in handoff_values
+    ):
+        raise ValueError("lineage handoff arguments must be provided together")
     ideas_path = Path(args.load_ideas)
     if not ideas_path.is_absolute():
         ideas_path = project_root / ideas_path
@@ -131,6 +193,7 @@ def main():
     experiment_root = Path(
         os.environ.get("AI_SCIENTIST_EXPERIMENT_DIR", project_root / "experiments")
     )
+    os.environ.setdefault("AI_SCIENTIST_EXPERIMENT_DIR", str(experiment_root))
     os.environ["AI_SCIENTIST_ROOT"] = str(project_root)
     with open(ideas_path, "r", encoding="utf-8") as handle:
         ideas = json.load(handle)
@@ -148,6 +211,14 @@ def main():
         experiment_root / f"{timestamp}_{safe_idea_name}_attempt_{args.attempt_id}"
     )
     idea_dir.mkdir(parents=True, exist_ok=False)
+    run_id = os.environ.get("AI_SCIENTIST_RUN_ID", "unknown")
+    save_run_status(
+        idea_dir,
+        "created",
+        model=args.model,
+        run_id=run_id,
+        max_nodes=args.max_nodes,
+    )
     idea_json_path = idea_dir / "idea.json"
     idea_markdown_path = idea_dir / "idea.md"
 
@@ -176,6 +247,21 @@ def main():
     finally:
         if preflight_trace is not None:
             configure_provider_tracing(None)
+    save_preflight_evidence(
+        idea_dir,
+        preflight,
+        model=args.model,
+        run_id=run_id,
+    )
+    preflight_status = "preflight_passed" if preflight.get("ok") else "preflight_failed"
+    save_run_status(
+        idea_dir,
+        preflight_status,
+        model=args.model,
+        run_id=run_id,
+        max_nodes=args.max_nodes,
+        error=None if preflight.get("ok") else str(preflight.get("error", "preflight failed")),
+    )
     if not preflight.get("ok"):
         raise RuntimeError(
             "Provider preflight failed: "
@@ -184,12 +270,43 @@ def main():
     cache_dir = Path(os.environ["NANOCHAT_SHARED_CACHE"]).resolve()
     pre_manifest = build_integrity_manifest(project_root, cache_dir)
     write_json_atomic(idea_dir / "integrity_before.json", pre_manifest)
-    perform_experiments_bfts(run_config_path)
-    post_manifest = build_integrity_manifest(project_root, cache_dir)
-    write_json_atomic(idea_dir / "integrity_after.json", post_manifest)
-    if pre_manifest != post_manifest:
-        raise RuntimeError("Project or shared-cache integrity changed during BFTS")
-    save_token_tracker(idea_dir)
+    save_run_status(
+        idea_dir,
+        "running",
+        model=args.model,
+        run_id=run_id,
+        max_nodes=args.max_nodes,
+    )
+    try:
+        perform_experiments_bfts(
+            run_config_path,
+            parent_journal_path=args.parent_journal,
+            parent_node_id=args.parent_node_id,
+            parent_stage=args.parent_stage,
+            lineage_id=args.lineage_id,
+        )
+        post_manifest = build_integrity_manifest(project_root, cache_dir)
+        write_json_atomic(idea_dir / "integrity_after.json", post_manifest)
+        if pre_manifest != post_manifest:
+            raise RuntimeError("Project or shared-cache integrity changed during BFTS")
+        save_token_tracker(idea_dir)
+    except Exception as exc:
+        save_run_status(
+            idea_dir,
+            "failed",
+            model=args.model,
+            run_id=run_id,
+            max_nodes=args.max_nodes,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise
+    save_run_status(
+        idea_dir,
+        "complete",
+        model=args.model,
+        run_id=run_id,
+        max_nodes=args.max_nodes,
+    )
     print(f"Experiment artifacts: {idea_dir.resolve()}")
 
 

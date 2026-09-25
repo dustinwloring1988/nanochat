@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -75,6 +74,13 @@ def test_experiment_contract_preserves_budget_and_context(tmp_path):
         num_iterations=400,
     )
     validate_experiment_contract(candidate, baseline, source)
+    validate_experiment_contract(
+        PretrainingExperimentConfig(seed=43), baseline, source, allow_seed_variants=True
+    )
+    with pytest.raises(ValueError, match="seed"):
+        validate_experiment_contract(
+            PretrainingExperimentConfig(seed=43), baseline, source
+        )
     with pytest.raises(ValueError, match="max_seq_len"):
         validate_experiment_contract(
             PretrainingExperimentConfig(max_seq_len=4096, total_batch_size=196608),

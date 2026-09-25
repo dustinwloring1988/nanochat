@@ -1,13 +1,10 @@
 import logging
-import shutil
 import json
 import pickle
 from . import backend
 from .journal import Journal, Node
-from .journal2report import journal2report
 from rich.columns import Columns
 from rich.console import Group
-from rich.live import Live
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.progress import (
@@ -24,8 +21,8 @@ from ai_scientist.providers import configure_provider_tracing
 from ai_scientist.trace_writer import TraceConfig
 from .utils.config import load_task_desc, prep_agent_workspace, save_run, load_cfg
 from .agent_manager import AgentManager
+from .lineage import finalize_lineage, load_parent_handoff
 from pathlib import Path
-from .agent_manager import Stage
 from .log_summarization import overall_summarize
 
 logger = logging.getLogger("ai-scientist")
@@ -55,8 +52,24 @@ def journal_to_rich_tree(journal: Journal, cfg):
     return tree
 
 
-def perform_experiments_bfts(config_path: str):
-    # turn config path string into a path object
+def perform_experiments_bfts(
+    config_path: str,
+    *,
+    parent_journal_path: str | None = None,
+    parent_node_id: str | None = None,
+    parent_stage: int | None = None,
+    lineage_id: str | None = None,
+):
+    handoff_values = {
+        "parent_journal_path": parent_journal_path,
+        "parent_node_id": parent_node_id,
+        "parent_stage": parent_stage,
+        "lineage_id": lineage_id,
+    }
+    if any(value is not None for value in handoff_values.values()) and not all(
+        value is not None for value in handoff_values.values()
+    ):
+        raise ValueError("lineage handoff arguments must be provided together")
     config_path = Path(config_path)
     cfg = load_cfg(config_path)
     logger.info(f'Starting run "{cfg.exp_name}"')
@@ -76,6 +89,17 @@ def perform_experiments_bfts(config_path: str):
         workspace_dir=Path(cfg.workspace_dir),
     )
 
+    handoff = None
+    if parent_journal_path is not None:
+        handoff = load_parent_handoff(
+            cfg,
+            manager,
+            parent_journal_path=parent_journal_path,
+            parent_node_id=parent_node_id,
+            parent_stage=parent_stage,
+            lineage_id=lineage_id,
+        )
+
     prog = Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(bar_width=20),
@@ -93,9 +117,8 @@ def perform_experiments_bfts(config_path: str):
     def create_exec_callback(status_obj):
         def exec_callback(*args, **kwargs):
             status_obj.update("[magenta]Executing code...")
-            res = interpreter.run(*args, **kwargs)
             status_obj.update("[green]Generating code...")
-            return res
+            return None
 
         return exec_callback
 
@@ -142,16 +165,16 @@ def perform_experiments_bfts(config_path: str):
 
             with open(notes_dir / "stage_progress.json", "w") as f:
                 json.dump(stage_summary, f, indent=2)
-
-            # Save the run as before
-            save_run(cfg, journal, stage_name=f"stage_{stage.name}")
-
         except Exception as e:
             print(f"Error in step callback: {e}")
+        finally:
+            try:
+                save_run(cfg, journal, stage_name=f"stage_{stage.name}")
+            except Exception as e:
+                print(f"Error saving run: {e}")
 
         print(f"Run saved at {cfg.log_dir / f'stage_{stage.name}'}")
         print(f"Step {len(journal)}/{stage.max_iterations} at stage_{stage.name}")
-        print(f"Run saved at {cfg.log_dir / f'stage_{stage.name}'}")
 
     def generate_live(manager):
         current_stage = manager.current_stage
@@ -197,12 +220,6 @@ def perform_experiments_bfts(config_path: str):
             subtitle="Press [b]Ctrl+C[/b] to stop the run",
         )
 
-    live = Live(
-        generate_live(manager),
-        refresh_per_second=16,
-        screen=True,
-    )
-
     configure_provider_tracing(
         TraceConfig(
             run_workspace=cfg.workspace_dir,
@@ -217,8 +234,18 @@ def perform_experiments_bfts(config_path: str):
         manager.run(
             exec_callback=create_exec_callback(status), step_callback=step_callback
         )
+    except Exception:
+        if handoff is not None:
+            try:
+                finalize_lineage(cfg, manager, handoff)
+            except Exception as lineage_error:
+                logger.error("Failed to persist rejected lineage evidence: %s", lineage_error)
+        raise
     finally:
         configure_provider_tracing(None)
+
+    if handoff is not None:
+        finalize_lineage(cfg, manager, handoff)
 
     manager_pickle_path = cfg.log_dir / "manager.pkl"
     try:
@@ -259,7 +286,7 @@ def perform_experiments_bfts(config_path: str):
         with open(ablation_summary_path, "w") as ablation_file:
             json.dump(ablation_summary, ablation_file, indent=2)
 
-        print(f"Summary reports written to files:")
+        print("Summary reports written to files:")
         print(f"- Draft summary: {draft_summary_path}")
         print(f"- Baseline summary: {baseline_summary_path}")
         print(f"- Research summary: {research_summary_path}")

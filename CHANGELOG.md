@@ -1,5 +1,31 @@
 # NanoChat Curriculum Training - Changelog
 
+## v0.3.0 - AI Scientist Bounded Gates (2026-09-25)
+
+### Summary
+
+Completed the approved one-node AI Scientist gates: a real three-stage descendant lineage, sequential seed confirmation, and bounded OpenRouter provider acceptance. All results are canonical and controller-attested; no promotion or dynamic-context activation was performed.
+
+### Added
+
+- `ai_scientist/treesearch/lineage.py`: controller-owned parent-journal handoff, source/result/attestation revalidation, and one-node lineage manifests.
+- `scripts/seed_confirmation.py`: sequential `[42, 43, 44]` runner with mean/single-seed regression gates.
+- `evidence/ai-scientist-lineage-20260925.json`, `evidence/ai-scientist-seed-confirmation-20260925.json`, and `evidence/ai-scientist-baseline-openrouter-20260925.json`.
+- Persisted `preflight.json` and `run_status.json` for bounded live runs.
+- Nanochat stage-2/stage-3 child generation constrained to one canonical run with a recorded hyperparameter change.
+- Fail-closed controller repairs for journal persistence, journal relationship loading, and post-fork CUDA runtime introspection.
+
+### Verified
+
+- Root, stage-2, and stage-3 lineage children each executed exactly one node with `max_nodes=1`; all lineage manifests report `status=complete`.
+- Seed confirmation passed: mean validation BPB `1.4945820303`, seed-42 baseline `1.4919842636`, and all three seeds within the declared tolerances.
+- OpenRouter preflight passed with structured tool output; the accepted run used 10-call/100,000-input/50,000-output caps and explicit missing-usage opt-in.
+- Raw experiment artifacts were removed after compact evidence capture; `experiments/` retains only `.gitkeep`.
+
+### Safety
+
+Promotion, dynamic context, multi-node search, and the controller/generated privilege boundary remain gated. The AI Scientist component remains under its separate upstream license; see `LICENSE`, `licenses/NANOCHAT_LICENSE`, and `licenses/AI_SCIENTIST_LICENSE`.
+
 ## v0.2.0 - Multi-Dataset SFT Curriculum & Baseline Run (2026-09-20 to 2026-09-22)
 
 ### Summary

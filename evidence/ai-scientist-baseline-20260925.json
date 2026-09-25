@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "run_id": "baseline-20260925-openrouter",
+  "artifact": "experiments/2026-09-25_13-58-34_nanochat_fixed_token_pretraining_attempt_0",
+  "artifact_retention": "raw artifacts removed after compact evidence capture",
+  "provider": "openrouter",
+  "model": "openrouter/stealth/space-bunny-alpha",
+  "max_nodes": 1,
+  "result": {
+    "val_bpb": 1.491847064157356,
+    "core_metric": -0.032981531890501306,
+    "peak_vram_bytes": 8384477696,
+    "active_tokens_per_second": 166324.96697668714,
+    "active_training_time_seconds": 118.20714807510376,
+    "wall_clock_training_seconds": 266.78054719700003,
+    "total_training_tokens": 19660800,
+    "parameter_count": 73531538,
+    "result_sha256": "c2e79d893e48a0e9be38c2ab97c26f6c744e061221827db05ccdd29f2edfc27a"
+  },
+  "provenance": {
+    "seed": 42,
+    "source_revision": "source-sha256:35acae36d4b1c95fc1e7d44098472cbd391946381312188309ed840f1756a09c",
+    "source_hash": "35acae36d4b1c95fc1e7d44098472cbd391946381312188309ed840f1756a09c",
+    "dataset_manifest_hash": "83cf1c2f54c7027c36c93903f4234ee934a6e7900d4e7957b7b86d5cafb43fee",
+    "tokenizer_hash": "aefd7ace36513c614f295f69a5fd694bba99052563c696e69245ef979f14d711",
+    "integrity_before_after_equal": true
+  },
+  "provider_budget": {
+    "calls": 6,
+    "input_tokens": 2351,
+    "output_tokens": 5805,
+    "max_calls": 10,
+    "max_input_tokens": 100000,
+    "max_output_tokens": 50000,
+    "missing_usage_opt_in": true
+  },
+  "attestation": {
+    "schema_version": 1,
+    "signature": "de309356d84293c7630c7bdab1c35b3ae1a226a13c20cbff29ab487d58c801ba"
+  },
+  "promotion": "not authorized"
+}

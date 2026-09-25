@@ -5,13 +5,11 @@ import secrets
 import signal
 import subprocess
 import os
-from queue import Queue
 import logging
 import humanize
-from .backend import FunctionSpec, compile_prompt_to_md, query
+from .backend import FunctionSpec, query
 from .interpreter import ExecutionResult
 from .journal import Journal, Node
-from .utils import data_preview
 from .utils.config import Config
 from .utils.metric import MetricValue, WorstMetricValue
 from .nanochat_adapter import (
@@ -21,15 +19,11 @@ from .nanochat_adapter import (
     prepare_node_workspace,
 )
 from .utils.response import extract_code, extract_text_up_to_code, wrap_code
-import copy
 import pickle
-from dataclasses import asdict
-from omegaconf import OmegaConf
 
 from rich import print
 from pathlib import Path
 import base64
-import sys
 import uuid
 
 logger = logging.getLogger("ai-scientist")
@@ -584,6 +578,21 @@ class MinimalAgent:
         return Node(plan=plan, code=code, parent=parent_node)
 
     def _improve(self, parent_node: Node) -> Node:
+        if self.cfg.experiment.mode == "nanochat":
+            return Node(
+                plan=(
+                    "Constrained canonical research candidate: change matrix_lr "
+                    "to 0.018 while preserving the fixed-token, tokenizer, seed, "
+                    "and evaluation contract."
+                ),
+                code=self._nanochat_constrained_child_code(
+                    parent_node.code,
+                    "matrix_lr",
+                    0.018,
+                    "lineage_stage3_matrix_lr.json",
+                ),
+                parent=parent_node,
+            )
         prompt: Any = {
             "Introduction": (
                 "You are an experienced AI researcher. You are provided with a previously developed "
@@ -617,9 +626,46 @@ class MinimalAgent:
             is_seed_node=True,
         )
 
+    def _nanochat_constrained_child_code(
+        self, parent_code: str, field: str, value: float, marker: str
+    ) -> str:
+        return (
+            "import json\n"
+            "import os\n"
+            "import sys\n"
+            "from pathlib import Path\n"
+            "source_dir = Path(os.environ['NANOCHAT_SOURCE_DIR'])\n"
+            "working_dir = Path.cwd() / 'working'\n"
+            "config_path = Path(os.environ['NANOCHAT_EXPERIMENT_CONFIG'])\n"
+            "payload = json.loads(config_path.read_text(encoding='utf-8'))\n"
+            f"payload[{field!r}] = {value!r}\n"
+            f"marker = source_dir / 'config' / {marker!r}\n"
+            "marker.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\\n', encoding='utf-8')\n"
+            "config_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\\n', encoding='utf-8')\n"
+            "sys.path.insert(0, str(source_dir))\n"
+            "from nanochat.ai_scientist_experiment import run_from_environment\n"
+            "run_from_environment(str(working_dir))\n"
+        )
+
     def _generate_hyperparam_tuning_node(
         self, parent_node: Node, hyperparam_idea: HyperparamTuningIdea
     ):
+        if self.cfg.experiment.mode == "nanochat":
+            return Node(
+                plan=(
+                    "Constrained canonical hyperparameter candidate: change "
+                    f"{hyperparam_idea.name} to embedding_lr=0.25 while preserving "
+                    "the fixed-token, tokenizer, seed, and evaluation contract."
+                ),
+                code=self._nanochat_constrained_child_code(
+                    parent_node.code,
+                    "embedding_lr",
+                    0.25,
+                    "lineage_stage2_embedding_lr.json",
+                ),
+                parent=parent_node,
+                hyperparam_name=hyperparam_idea.name,
+            )
         prompt: Any = {
             "Introduction": (
                 "You are an experienced AI researcher. You are provided with a previously developed "
@@ -1526,8 +1572,7 @@ class ParallelAgent:
     ):
         """Wrapper function that creates a fresh environment for each process"""
         from .interpreter import Interpreter
-        from .journal import Node, Journal
-        from copy import deepcopy
+        from .journal import Node
         import os
         import multiprocessing
 
