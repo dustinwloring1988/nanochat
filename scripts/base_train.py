@@ -45,7 +45,11 @@ from nanochat.common import (
     is_ddp_initialized,
 )
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
-from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
+from nanochat.checkpoint_manager import (
+    save_checkpoint,
+    load_checkpoint,
+    load_dataloader_checkpoint,
+)
 from nanochat.loss_eval import evaluate_bpb
 from nanochat.research_results import (
     build_resume_contract,
@@ -538,7 +542,11 @@ if scaler is not None:
 # -----------------------------------------------------------------------------
 # Initialize the DataLoaders for train/val
 dataloader_resume_state_dict = (
-    None if not resuming else meta_data["dataloader_state_dict"]
+    load_dataloader_checkpoint(
+        checkpoint_dir, args.resume_from_step, ddp_rank, device="cpu"
+    )
+    if resuming
+    else None
 )
 train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(
     tokenizer,
@@ -707,9 +715,14 @@ while True:
         step == num_iterations
     )  # loop runs num_iterations+1 times so that we can eval/save at the end
     flops_so_far = num_flops_per_token * total_batch_size * step
+    skip_resume_step = resuming and step == args.resume_from_step
 
     # once in a while: evaluate the val bpb (all ranks participate)
-    if args.eval_every > 0 and (last_step or step % args.eval_every == 0):
+    if (
+        not skip_resume_step
+        and args.eval_every > 0
+        and (last_step or step % args.eval_every == 0)
+    ):
         model.eval()
         val_loader = build_val_loader()
         eval_batch_tokens = args.device_batch_size * args.max_seq_len * ddp_world_size
@@ -741,8 +754,10 @@ while True:
     # use the original uncompiled model because the inputs keep changing shape
     # disable FP8 for evaluation to use BF16 for more consistent/accurate results
     results = {}
-    if args.core_metric_every > 0 and (
-        last_step or (step > 0 and step % args.core_metric_every == 0)
+    if (
+        not skip_resume_step
+        and args.core_metric_every > 0
+        and (last_step or (step > 0 and step % args.core_metric_every == 0))
     ):
         model.eval()
         with disable_fp8(orig_model):
@@ -767,7 +782,8 @@ while True:
     # once in a while: sample from the model (only on master process)
     # use the original uncompiled model because the inputs keep changing shape
     if (
-        args.sample_every > 0
+        not skip_resume_step
+        and args.sample_every > 0
         and master_process
         and (last_step or (step > 0 and step % args.sample_every == 0))
     ):
@@ -811,7 +827,6 @@ while True:
                 "device_batch_size": args.device_batch_size,
                 "max_seq_len": args.max_seq_len,
                 "total_batch_size": total_batch_size,
-                "dataloader_state_dict": dataloader_state_dict,
                 "resume_contract": make_resume_contract(),
                 "loop_state": {  # all loop state (other than step) so that we can resume training
                     "min_val_bpb": min_val_bpb,
@@ -824,6 +839,7 @@ while True:
                 },
             },
             rank=ddp_rank,
+            dataloader_state_dict=dataloader_state_dict,
         )
 
     # termination conditions (TODO: possibly also add loss explosions etc.)

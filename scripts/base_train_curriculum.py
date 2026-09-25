@@ -42,6 +42,7 @@ from nanochat.multi_source_dataloader import (
     tokenizing_distributed_data_loader_multi_source,
 )
 from nanochat.curriculum import CurriculumStage, CurriculumScheduler
+from nanochat.curriculum_state import assert_stage_transition_has_no_pending_batch
 from nanochat.common import (
     compute_init,
     compute_cleanup,
@@ -56,7 +57,11 @@ from nanochat.common import (
     is_ddp_initialized,
 )
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
-from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
+from nanochat.checkpoint_manager import (
+    save_checkpoint,
+    load_checkpoint,
+    load_dataloader_checkpoint,
+)
 from nanochat.loss_eval import evaluate_bpb
 from nanochat.research_results import (
     build_resume_contract,
@@ -649,7 +654,11 @@ if scaler is not None:
 # Initialize DataLoader
 
 dataloader_resume_state_dict = (
-    None if not resuming else meta_data.get("dataloader_state_dict")
+    load_dataloader_checkpoint(
+        checkpoint_dir, args.resume_from_step, ddp_rank, device="cpu"
+    )
+    if resuming
+    else None
 )
 loader_step = meta_data["step"] if resuming else 0
 initial_stage_idx = (
@@ -833,12 +842,14 @@ wall_start_time = time.perf_counter()
 while True:
     last_step = step == num_iterations
     flops_so_far = num_flops_per_token * total_batch_size * step
+    skip_resume_step = resuming and step == args.resume_from_step
 
     # Check for curriculum stage transition
     if use_curriculum and curriculum_scheduler is not None:
         stage_idx, stage_progress = curriculum_scheduler.get_stage_progress(step=step)
 
         if stage_idx != current_stage_idx:
+            assert_stage_transition_has_no_pending_batch(dataloader_state_dict)
             stage_info = curriculum_scheduler.get_stage_info(step=step)
             print0("=" * 80)
             print0(f"CURRICULUM STAGE TRANSITION → {stage_info['stage_name'].upper()}")
@@ -870,7 +881,11 @@ while True:
             x, y, dataloader_state_dict = next(train_loader)
             current_stage_idx = stage_idx
 
-    if args.eval_every > 0 and (last_step or step % args.eval_every == 0):
+    if (
+        not skip_resume_step
+        and args.eval_every > 0
+        and (last_step or step % args.eval_every == 0)
+    ):
         model.eval()
         val_loader = build_val_loader()
         eval_batch_tokens = args.device_batch_size * args.max_seq_len * ddp_world_size
@@ -902,8 +917,10 @@ while True:
 
     # CORE metric evaluation
     results = {}
-    if args.core_metric_every > 0 and (
-        last_step or (step > 0 and step % args.core_metric_every == 0)
+    if (
+        not skip_resume_step
+        and args.core_metric_every > 0
+        and (last_step or (step > 0 and step % args.core_metric_every == 0))
     ):
         model.eval()
         with disable_fp8(orig_model):
@@ -927,7 +944,8 @@ while True:
 
     # Sampling
     if (
-        args.sample_every > 0
+        not skip_resume_step
+        and args.sample_every > 0
         and master_process
         and (last_step or (step > 0 and step % args.sample_every == 0))
     ):
@@ -962,7 +980,6 @@ while True:
             "device_batch_size": args.device_batch_size,
             "max_seq_len": args.max_seq_len,
             "total_batch_size": total_batch_size,
-            "dataloader_state_dict": dataloader_state_dict,
             "resume_contract": make_checkpoint_resume_contract(),
             "loop_state": {
                 "min_val_bpb": min_val_bpb,
@@ -985,6 +1002,7 @@ while True:
             optimizer.state_dict(),
             metadata,
             rank=ddp_rank,
+            dataloader_state_dict=dataloader_state_dict,
         )
 
     if last_step:

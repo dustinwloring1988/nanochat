@@ -1,13 +1,14 @@
 # Nanochat AI Scientist v2 — Remaining Work Plan
 
-- **Status:** Code hardening and live one-node validation complete for OpenCode and OpenRouter; multi-stage/multi-seed expansion pending
+- **Status:** Final handoff: one-node pilot complete; future work remains explicitly gated
 - **Date:** 2026-09-24
+- **Last verified commit:** `2a86695` (`integrate ai scientist`)
 - **Target:** RTX 4060 Ti, 16 GB VRAM
 - **Upstream pin:** `96bd51617cfdbb494a9fc283af00fe090edfae48`
 - **Pilot cache:** ignored repository `data/`
 - **External cache:** `C:\Users\dusti\.cache\nanochat` remains unchanged
 
-This file is the actionable backlog. Completed implementation details belong in `postmordum.md`; do not add new completed-phase sections here.
+This file is the final handoff backlog. Checked items are complete within the approved one-node scope; unchecked items are not silently deferred and require a new approval or milestone. Completed implementation details belong in `postmordum.md`.
 
 ## Hard boundaries
 
@@ -29,10 +30,17 @@ These are permanent safety rules, not deferred tasks:
 - Provider routing, deterministic seeds, curriculum transitions, canonical results, source snapshots, and GPU Docker isolation are implemented.
 - The local `data/` cache contains the tokenizer, both ClimbMix layouts, and the evaluation bundle.
 - A fixed-context depth-6 run completed at 19,660,800 tokens: validation BPB `1.491058`, peak allocated VRAM `8.39 GB`, approximately `2.63` minutes.
-- A same-seed repeat ended at BPB `1.491474`; absolute delta is `0.000416`. The current numerical reproducibility tolerance is `0.001`, not bitwise equality.
+- A same-seed repeat ended at BPB `1.491474`; absolute delta is `0.000416`. The current numerical reproducibility tolerance is `0.001`, not bitwise equality; it is not a statistical candidate-acceptance threshold.
 - Live one-node BFTS passed with OpenCode `opencode/space-bunny-free` at BPB `1.491380` and OpenRouter `openrouter/stealth/space-bunny-alpha` at BPB `1.491395`.
 - OpenRouter's free endpoint omits usage metadata; its live run requires explicit `AI_SCIENTIST_ALLOW_MISSING_USAGE=1`, while API-call limits remain enforced.
-- Current verification: Linux container `95 passed, 10 skipped`; focused host AI suite `41 passed, 1 skipped`; Black checks for integration files and compilation pass.
+- Isolated GPU resume probe passed for a two-step, one-stage float32 curriculum run: model state delta `0`, optimizer delta `7.28e-12`, loader state exact, validation BPB `2.2683011088` in both paths, and resume curve steps/losses restored without duplication. The two-stage negative control failed closed with `stage transition blocked: pending batch must be consumed or checkpointed`.
+- Current verification: Linux container `120 passed, 10 skipped`; the 10 skips are FA3 capability-gated attention tests, while SDPA coverage passes. The focused AI/loader/checkpoint/curriculum suite passes `67 passed`; native Windows execution-sandbox tests remain non-authoritative because `resource` is unavailable. Black checks for integration files and compilation pass.
+
+## Pilot decision
+
+- The approved current scope is complete: both live providers passed exactly one controller-attested BFTS node, and the root repository and external cache remained unchanged.
+- This commit is a research-integration checkpoint, not checkpoint promotion, patch application, paper generation, SFT approval, or permission to run a larger search.
+- Multi-stage inheritance, multi-node/multi-seed confirmation, and separate privilege-domain isolation remain future milestones; enable them only through an explicit follow-up approval. The supported one-node/one-stage real resume path is validated; successful multi-stage training remains intentionally blocked by the fail-closed pending-batch guard.
 
 ## P0 — close before trusting any BFTS result
 
@@ -59,8 +67,18 @@ These are permanent safety rules, not deferred tasks:
 
 ## P1 — execution and curriculum correctness
 
-- [ ] Run a full multi-stage BFTS test proving an accepted parent source snapshot seeds descendants; the current targeted archive/reuse test is not sufficient.
-- [ ] Make multi-source dataloader resume exact, including per-rank cursors, buffered documents, pending packed data, and stage transitions.
+- [x] Add an offline controller-level regression proving accepted parent `candidate_source` crosses main stages 1–4 without provider calls, extra GPU nodes, or production guard changes.
+- [ ] **Future gate:** Run a real multi-stage BFTS training test with at least two executed nodes; the offline regression does not execute descendant training.
+- [x] Implement a versioned CPU-testable loader snapshot that preserves exact source order, per-iterator cursors, document buffers, sampler state, and pending packed batches.
+- [x] Add rank-local dataloader checkpoint files and a fail-closed loader helper while preserving existing checkpoint callers.
+- [x] Integrate rank-local state loading and explicit state persistence into both training scripts.
+- [x] Add an offline checkpoint-boundary round trip proving resumed loader batches match the uninterrupted stream.
+- [x] Define and test a versioned stage-transition contract with cumulative composition counters.
+- [x] Select and enforce the fail-closed pending-batch policy at stage boundaries.
+- [x] Validate real one-stage GPU checkpoint/resume equivalence in an isolated temporary root.
+- [x] Prevent duplicate evaluation/metric side effects at the resume step and verify curve restoration.
+- [x] Validate the two-stage negative control fails closed before any loader reset.
+- [ ] **Future gate:** Prove successful multi-stage training and composition restoration before enabling dynamic stages.
 - [x] Reject resume when model shape, curriculum schedule, seed, world size, token horizon, or dataloader configuration differs.
 - [x] Add stage/source composition metadata and a source-mixture plot to canonical results.
 - [x] Decide whether MFU is `null`/unknown or add a verified RTX 4060 Ti peak-FLOPS value; do not report unknown MFU as a measured zero.
@@ -71,8 +89,8 @@ These are permanent safety rules, not deferred tasks:
 - [x] Run one real BFTS node with the default fixed 2,048-token profile and a supplied provider credential.
 - [x] Confirm the node stops after exactly one executed training node and does not launch stage transitions or multi-seed work.
 - [x] Verify the root repository and configured shared cache with pre/post manifests; the external cache remains untouched by design.
-- [ ] Run a short multi-node search, then confirm a shortlist sequentially with seeds `42`, `43`, and `44`.
-- [ ] Predeclare the statistical acceptance threshold before comparing candidates.
+- [ ] **Future gate:** Run a short multi-node search, then confirm a shortlist sequentially with seeds `42`, `43`, and `44`.
+- [ ] **Future gate:** Predeclare the statistical acceptance threshold before comparing candidates.
 - [x] Export candidate patches and artifacts only; do not apply or commit them.
 
 ## Planned follow-on action items
@@ -111,4 +129,4 @@ This is future work, not part of the current pilot:
 
 ## Completion gate
 
-The pretraining integration is ready for promotion only when all P0 items are closed, one live BFTS node passes, the root/cache remain unchanged, a short search and multi-seed confirmation complete, all tests pass, and the final diff is reviewed by a human. A commit or push remains a separate explicit user action.
+The current one-node integration is complete and verified. It is **not promotion-ready**: multi-node/multi-seed confirmation, a predeclared statistical threshold, exact buffered resume, and a separate privilege domain remain required before expanding the research boundary. The final diff was committed as `2a86695`; any later promotion, patch application, checkpoint promotion, or push remains a separate explicit human-approved action.

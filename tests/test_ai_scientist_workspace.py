@@ -66,6 +66,11 @@ def config(tmp_path: Path):
     )
 
 
+class _ControllerConfig(SimpleNamespace):
+    def copy(self):
+        return _ControllerConfig(**vars(self))
+
+
 def test_prepare_node_workspace_is_unique(tmp_path):
     cfg = config(tmp_path)
     first = prepare_node_workspace(cfg)
@@ -359,6 +364,168 @@ def test_candidate_source_is_archived_and_reused(tmp_path):
     assert (second["source"] / "nanochat" / "candidate.py").read_text(
         encoding="utf-8"
     ) == "VALUE = 1\n"
+
+
+def test_agent_manager_inherits_candidate_source_across_main_stages(
+    tmp_path, monkeypatch
+):
+    from ai_scientist.treesearch import agent_manager, backend
+    from ai_scientist.treesearch.interpreter import ExecutionResult
+    from ai_scientist.treesearch.journal import Node
+
+    def fail_provider_call(*args, **kwargs):
+        raise AssertionError("provider call attempted")
+
+    monkeypatch.setattr(backend, "query_model", fail_provider_call)
+
+    cfg = _ControllerConfig(**vars(config(tmp_path)))
+    cfg.agent = SimpleNamespace(
+        steps=1,
+        stages=SimpleNamespace(
+            stage1_max_iters=2,
+            stage2_max_iters=1,
+            stage3_max_iters=1,
+            stage4_max_iters=1,
+        ),
+        search=SimpleNamespace(num_drafts=1),
+        max_nodes=1,
+        metric_only=True,
+    )
+    cfg.log_dir.mkdir(parents=True)
+    checkpoint_root = cfg.log_dir / cfg.workspace_dir.name
+    for stage_name in (
+        "1_initial_implementation_1_preliminary",
+        "2_baseline_tuning_1_first_attempt",
+        "3_creative_research_1_first_attempt",
+        "4_ablation_studies_1_first_attempt",
+    ):
+        (checkpoint_root / f"stage_{stage_name}").mkdir(parents=True, exist_ok=True)
+
+    materialized = []
+    step_results = []
+
+    class FakeParallelAgent:
+        def __init__(
+            self,
+            task_desc,
+            cfg,
+            journal,
+            stage_name=None,
+            best_stage3_node=None,
+            best_stage2_node=None,
+            best_stage1_node=None,
+        ):
+            self.cfg = cfg
+            self.journal = journal
+            self.stage_name = stage_name
+            self.best_stage3_node = best_stage3_node
+            self.best_stage2_node = best_stage2_node
+            self.best_stage1_node = best_stage1_node
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def _run_multi_seed_evaluation(self, node):
+            return []
+
+        def _run_plot_aggregation(self, node, seed_nodes):
+            return None
+
+        def step(self, exec_callback):
+            if self.stage_name.startswith("1_"):
+                paths = prepare_node_workspace(self.cfg)
+                marker = paths["source"] / "nanochat" / "accepted_parent.txt"
+                marker.write_text("accepted\n", encoding="utf-8")
+                payload = canonical_result()
+                bind_provenance(payload, self.cfg, paths)
+                (paths["working"] / "results.json").write_text(
+                    json.dumps(payload), encoding="utf-8"
+                )
+                for name in (
+                    "validation_bpb.png",
+                    "training_loss.png",
+                    "tokens_per_second.png",
+                    "source_mixture.png",
+                ):
+                    (paths["working"] / name).write_bytes(b"png")
+                node = Node(plan="offline stage 1", code="print('ok')")
+                apply_nanochat_result(
+                    node,
+                    ExecutionResult(["ok"], 1.0, None, None, None),
+                    self.cfg,
+                    paths,
+                )
+                self.journal.append(node)
+                materialized.append((self.stage_name, paths, None))
+                step_results.append(1)
+                return 1
+
+            if self.stage_name.startswith("2_"):
+                parent = self.best_stage1_node
+            elif self.stage_name.startswith("3_"):
+                parent = self.best_stage2_node
+            else:
+                parent = self.best_stage3_node
+            if parent is None:
+                raise AssertionError("inherited parent is missing")
+            paths = prepare_node_workspace(self.cfg, parent.candidate_source)
+            materialized.append((self.stage_name, paths, parent.id))
+            step_results.append(0)
+            return 0
+
+    monkeypatch.setattr(agent_manager, "ParallelAgent", FakeParallelAgent)
+    monkeypatch.setattr(
+        agent_manager.AgentManager, "_node_limit_reached", lambda self: False
+    )
+
+    task_desc = json.dumps(
+        {
+            "Title": "Offline candidate inheritance",
+            "Abstract": "Offline controller regression.",
+            "Short Hypothesis": "Accepted source snapshots persist.",
+            "Experiments": ["offline result"],
+            "Risk Factors and Limitations": ["offline only"],
+        }
+    )
+    manager = agent_manager.AgentManager(task_desc, cfg, cfg.workspace_dir)
+    manager.run(exec_callback=None)
+
+    accepted = manager.journals[manager.stages[0].name].nodes[0]
+    assert accepted.is_buggy is False
+    assert manager.executed_nodes == 1
+    assert step_results == [1, 0, 0, 0]
+    assert len(manager.stages) == 4
+    assert len(manager.stage_history) == 3
+    assert [transition.from_stage for transition in manager.stage_history] == [
+        manager.stages[index].name for index in range(3)
+    ]
+    assert [transition.to_stage for transition in manager.stage_history] == [
+        manager.stages[index + 1].name for index in range(3)
+    ]
+    assert manager.current_stage is None
+
+    assert [stage_name for stage_name, _, _ in materialized] == [
+        stage.name for stage in manager.stages
+    ]
+    for stage in manager.stages[1:]:
+        inherited = manager.journals[stage.name].nodes[0]
+        assert inherited.id == accepted.id
+        assert inherited.candidate_source == accepted.candidate_source
+    assert [parent_id for _, _, parent_id in materialized[1:]] == [accepted.id] * 3
+
+    marker = Path("nanochat") / "accepted_parent.txt"
+    assert not (cfg.experiment.source_dir / marker).exists()
+    assert (Path(accepted.candidate_source) / marker).read_text(
+        encoding="utf-8"
+    ) == "accepted\n"
+    for _, paths, _ in materialized:
+        assert (paths["source"] / marker).read_text(encoding="utf-8") == "accepted\n"
+    archived_results = list((cfg.log_dir / "experiment_results").glob("*/results.json"))
+    assert len(archived_results) == 1
+    assert archived_results[0].parent.name.startswith(f"node_{accepted.id}_")
 
 
 def test_node_serializes_paths_outside_project(tmp_path):
